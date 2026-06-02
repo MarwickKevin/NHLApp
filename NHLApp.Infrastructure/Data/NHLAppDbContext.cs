@@ -24,22 +24,38 @@ namespace NHLApp.Infrastructure.Data
         {
             base.OnModelCreating(modelBuilder);
 
-            modelBuilder.Entity<Season>()
-                .HasKey(s => s.SeasonId);
-
             modelBuilder.Entity<Franchise>()
                 .HasKey(f => f.FranchiseId);
+
+            modelBuilder.Entity<Franchise>()
+                .Property(f => f.FranchiseId)
+                .ValueGeneratedNever();
 
             modelBuilder.Entity<Team>()
                 .HasKey(t => t.TeamId);
 
             modelBuilder.Entity<Team>()
-                .HasOne(t => t.Franchise)
-                .WithMany(f => f.Teams)
-                .HasForeignKey(t => t.FranchiseId);
+                .Property(t => t.TeamId)
+                .ValueGeneratedNever();
 
             modelBuilder.Entity<Player>()
                 .HasKey(p => p.PlayerId);
+
+            modelBuilder.Entity<Player>()
+                .Property(p => p.PlayerId)
+                .ValueGeneratedNever();
+
+            modelBuilder.Entity<Season>()
+                .HasKey(s => s.SeasonId);
+
+            modelBuilder.Entity<Season>()
+                .Property(s => s.SeasonId)
+                .ValueGeneratedNever();
+
+            modelBuilder.Entity<Team>()
+                .HasOne(t => t.Franchise)
+                .WithMany(f => f.Teams)
+                .HasForeignKey(t => t.FranchiseId);
 
             modelBuilder.Entity<RawApiResponse>()
                 .Property(r => r.ResponseJson)

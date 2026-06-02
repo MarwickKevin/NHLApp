@@ -25,10 +25,7 @@ namespace NHLApp.Infrastructure.Migrations
             modelBuilder.Entity("NHLApp.Core.Entitties.Franchise", b =>
                 {
                     b.Property<int>("FranchiseId")
-                        .ValueGeneratedOnAdd()
                         .HasColumnType("int");
-
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("FranchiseId"));
 
                     b.Property<string>("Name")
                         .IsRequired()
@@ -42,10 +39,7 @@ namespace NHLApp.Infrastructure.Migrations
             modelBuilder.Entity("NHLApp.Core.Entitties.Player", b =>
                 {
                     b.Property<int>("PlayerId")
-                        .ValueGeneratedOnAdd()
                         .HasColumnType("int");
-
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("PlayerId"));
 
                     b.Property<string>("BirthCity")
                         .HasColumnType("nvarchar(max)");
@@ -114,10 +108,7 @@ namespace NHLApp.Infrastructure.Migrations
             modelBuilder.Entity("NHLApp.Core.Entitties.Season", b =>
                 {
                     b.Property<int>("SeasonId")
-                        .ValueGeneratedOnAdd()
                         .HasColumnType("int");
-
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("SeasonId"));
 
                     b.Property<int>("EndYear")
                         .HasColumnType("int");
@@ -133,10 +124,7 @@ namespace NHLApp.Infrastructure.Migrations
             modelBuilder.Entity("NHLApp.Core.Entitties.Team", b =>
                 {
                     b.Property<int>("TeamId")
-                        .ValueGeneratedOnAdd()
                         .HasColumnType("int");
-
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("TeamId"));
 
                     b.Property<int?>("FranchiseId")
                         .HasColumnType("int");
