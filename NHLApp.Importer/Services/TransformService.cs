@@ -1,4 +1,4 @@
-﻿using NHLApp.Core.Entitties;
+﻿using NHLApp.Core.Entities;
 using NHLApp.Infrastructure.Data;
 using System;
 using System.Collections.Generic;

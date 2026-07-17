@@ -27,11 +27,11 @@ namespace NHLApp.Importer.NHL
         public async Task<string> GetPlayerAsync(int playerId)
             => await _httpClient.GetStringAsync($"{WebApiBase}player/{playerId}/landing");
 
-        public async Task<string> GetPlayByPlayAsync(int gameId)
-            => await _httpClient.GetStringAsync($"{WebApiBase}gamecenter/{gameId}/play-by-play");
+        //public async Task<string> GetPlayByPlayAsync(int gameId)
+        //    => await _httpClient.GetStringAsync($"{WebApiBase}gamecenter/{gameId}/play-by-play");
 
-        public async Task<string> GetBoxscoreAsync(int gameId)
-            => await _httpClient.GetStringAsync($"{WebApiBase}gamecenter/{gameId}/boxscore");
+        //public async Task<string> GetBoxscoreAsync(int gameId)
+        //    => await _httpClient.GetStringAsync($"{WebApiBase}gamecenter/{gameId}/boxscore");
 
         public async Task<string> GetTeamRosterAsync(string teamCode, int seasonId)
              => await _httpClient.GetStringAsync($"{WebApiBase}roster/{teamCode}/{seasonId}");

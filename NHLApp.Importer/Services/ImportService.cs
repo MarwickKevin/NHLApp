@@ -1,4 +1,4 @@
-﻿using NHLApp.Core.Entitties;
+﻿using NHLApp.Core.Entities;
 using NHLApp.Core.Interfaces;
 using NHLApp.Infrastructure.Data;
 using System;
@@ -7,6 +7,7 @@ using System.Linq;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
+
 
 namespace NHLApp.Importer.Services
 {
@@ -21,11 +22,13 @@ namespace NHLApp.Importer.Services
             _db = db;
         }
 
+       
         public async Task ImportSeasonsAsync()
         {
             var existing = _db.RawApiResponses
                 .FirstOrDefault(r => r.Endpoint == "season");
 
+            // TODO: Change this to a more appropriate cache duration
             if (existing != null && existing.FetchedAt > DateTime.UtcNow.AddYears(-1))
                 return;
 
