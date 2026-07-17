@@ -1,9 +1,9 @@
 using Microsoft.EntityFrameworkCore;
-using NHLApp.Core.Interfaces;
-using NHLApp.Importer;
-using NHLApp.Importer.NHL;
-using NHLApp.Importer.Services;
+using NHLApp.Domain.Interfaces;
+using NHLApp.Worker;
+using NHLApp.Application.Services;
 using NHLApp.Infrastructure.Data;
+using NHLApp.Infrastructure.NHL;
 
 var builder = Host.CreateApplicationBuilder(args);
 

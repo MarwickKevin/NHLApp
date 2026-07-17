@@ -4,7 +4,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace NHLApp.Core.Interfaces
+namespace NHLApp.Domain.Interfaces
 {
     public interface INHLApiClient
     {

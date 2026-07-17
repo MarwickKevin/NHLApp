@@ -4,7 +4,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace NHLApp.Core.Entities
+namespace NHLApp.Domain.Entities
 {
     public class Franchise
     {

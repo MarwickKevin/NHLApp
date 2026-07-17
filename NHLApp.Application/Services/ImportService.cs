@@ -1,5 +1,5 @@
-﻿using NHLApp.Core.Entities;
-using NHLApp.Core.Interfaces;
+﻿using NHLApp.Domain.Entities;
+using NHLApp.Domain.Interfaces;
 using NHLApp.Infrastructure.Data;
 using System;
 using System.Collections.Generic;
@@ -7,9 +7,10 @@ using System.Linq;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
+using NHLApp.Domain;
 
 
-namespace NHLApp.Importer.Services
+namespace NHLApp.Application.Services
 {
     public class ImportService
     {

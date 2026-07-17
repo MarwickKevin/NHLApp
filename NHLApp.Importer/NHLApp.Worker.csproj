@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk.Worker">
+﻿<Project Sdk="Microsoft.NET.Sdk.Worker">
 
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
@@ -19,7 +19,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\NHLApp.Core\NHLApp.Core.csproj" />
+    <ProjectReference Include="..\NHLApp.Application\NHLApp.Application.csproj" />
+    <ProjectReference Include="..\NHLApp.Core\NHLApp.Domain.csproj" />
     <ProjectReference Include="..\NHLApp.Infrastructure\NHLApp.Infrastructure.csproj" />
   </ItemGroup>
 </Project>

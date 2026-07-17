@@ -1,5 +1,5 @@
 ﻿using Microsoft.EntityFrameworkCore;
-using NHLApp.Core.Entities;
+using NHLApp.Domain.Entities;
 using System;
 using System.Collections.Generic;
 using System.Linq;

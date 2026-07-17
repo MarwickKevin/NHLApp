@@ -1,7 +1,7 @@
-using NHLApp.Importer.Services;
+using NHLApp.Application.Services;
 using NHLApp.Infrastructure.Data;
 
-namespace NHLApp.Importer
+namespace NHLApp.Worker
 {
     public class Worker : BackgroundService
     {

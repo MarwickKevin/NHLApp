@@ -1,11 +1,11 @@
-﻿using NHLApp.Core.Interfaces;
+﻿using NHLApp.Domain.Interfaces;
 using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace NHLApp.Importer.NHL
+namespace NHLApp.Infrastructure.NHL
 {
     public class NHLApiClient : INHLApiClient
     {
@@ -24,8 +24,8 @@ namespace NHLApp.Importer.NHL
         public async Task<string> GetTeamsAsync()
             => await _httpClient.GetStringAsync($"{StatsApiBase}team");
 
-        public async Task<string> GetPlayerAsync(int playerId)
-            => await _httpClient.GetStringAsync($"{WebApiBase}player/{playerId}/landing");
+        //public async Task<string> GetPlayerAsync(int playerId)
+        //    => await _httpClient.GetStringAsync($"{WebApiBase}player/{playerId}/landing");
 
         //public async Task<string> GetPlayByPlayAsync(int gameId)
         //    => await _httpClient.GetStringAsync($"{WebApiBase}gamecenter/{gameId}/play-by-play");

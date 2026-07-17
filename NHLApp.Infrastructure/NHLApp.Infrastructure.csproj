@@ -20,7 +20,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\NHLApp.Core\NHLApp.Core.csproj" />
+    <ProjectReference Include="..\NHLApp.Core\NHLApp.Domain.csproj" />
   </ItemGroup>
 
   <ItemGroup>
