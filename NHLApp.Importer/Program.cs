@@ -22,4 +22,12 @@ builder.Services.AddScoped<ImportService>();
 builder.Services.AddScoped<TransformService>();
 
 var host = builder.Build();
+
+// Automatically apply migrations and create the DB if it doesn't exist
+using (var scope = host.Services.CreateScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<NHLAppDbContext>();
+    db.Database.Migrate();
+}
+
 host.Run();

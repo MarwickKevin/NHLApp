@@ -33,6 +33,7 @@ namespace NHLApp.Application.Services
             if (existing != null && existing.FetchedAt > DateTime.UtcNow.AddYears(-1))
                 return;
 
+            /// Retrieve the seasons from the NHL API
             var json = await _nhlClient.GetSeasonsAsync();
 
             if (existing != null)

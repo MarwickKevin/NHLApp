@@ -1,4 +1,5 @@
-﻿using NHLApp.Domain.Entities;
+﻿using NHLApp.Application.DTOs;
+using NHLApp.Domain.Entities;
 using NHLApp.Infrastructure.Data;
 using System;
 using System.Collections.Generic;
@@ -21,15 +22,17 @@ namespace NHLApp.Application.Services
 
         public async Task TransformSeasonsAsync()
         {
-            if (_db.Seasons.Any()) return;
-
             var raw = _db.RawApiResponses.FirstOrDefault(r => r.Endpoint == "season");
             if (raw == null) return;
 
+            // Deserialize the JSON array of season IDs into a list of integers
             var seasonIds = JsonSerializer.Deserialize<List<int>>(raw.ResponseJson)!;
 
+            // Idempotent insertion: only add seasons that don't already exist in the database
             foreach (var seasonId in seasonIds)
             {
+                if (_db.Seasons.Any(s => s.SeasonId == seasonId)) continue;
+
                 _db.Seasons.Add(new Season
                 {
                     SeasonId = seasonId,
@@ -46,41 +49,38 @@ namespace NHLApp.Application.Services
             var raw = _db.RawApiResponses.FirstOrDefault(r => r.Endpoint == "team");
             if (raw == null) return;
 
-            if (_db.Teams.Any()) return;
-
-            var root = JsonDocument.Parse(raw.ResponseJson).RootElement;
-            var data = root.GetProperty("data");
+            // Automatic deserialization using the DTO (ignoring JSON case)
+            var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+            NhlTeamRootDTO? root = JsonSerializer.Deserialize<NhlTeamRootDTO>(raw.ResponseJson, options);
+            if (root?.Data == null) return;
 
             var addedFranchiseIds = new HashSet<int>();
 
-            foreach (var item in data.EnumerateArray())
-            {
-                var teamId = item.GetProperty("id").GetInt32();
-
-                int? franchiseId = item.GetProperty("franchiseId").ValueKind == JsonValueKind.Null
-                    ? null
-                    : item.GetProperty("franchiseId").GetInt32();
-
-                if (franchiseId.HasValue
-                    && !addedFranchiseIds.Contains(franchiseId.Value)
-                    && !_db.Franchises.Any(f => f.FranchiseId == franchiseId.Value))
+            // Idempotent insertion: check for existing franchises and teams before adding
+            foreach (NhlTeamItemDTO item in root.Data)
+            {                
+                if (item.FranchiseId.HasValue
+                    && !addedFranchiseIds.Contains(item.FranchiseId.Value)
+                    && !_db.Franchises.Any(f => f.FranchiseId == item.FranchiseId.Value))
                 {
                     _db.Franchises.Add(new Franchise
                     {
-                        FranchiseId = franchiseId.Value,
-                        Name = item.GetProperty("fullName").GetString() ?? string.Empty
+                        FranchiseId = item.FranchiseId.Value,
+                        Name = item.FullName
                     });
-                    addedFranchiseIds.Add(franchiseId.Value);
+                    addedFranchiseIds.Add(item.FranchiseId.Value);
                 }
+
+                if (_db.Teams.Any(t => t.TeamId == item.Id)) continue;
 
                 _db.Teams.Add(new Team
                 {
-                    TeamId = teamId,
-                    FranchiseId = franchiseId,
-                    FullName = item.GetProperty("fullName").GetString() ?? string.Empty,
-                    TriCode = item.GetProperty("triCode").GetString() ?? string.Empty,
-                    RawTriCode = item.GetProperty("rawTricode").GetString() ?? string.Empty,
-                    LeagueId = item.GetProperty("leagueId").GetInt32()
+                    TeamId = item.Id,
+                    FranchiseId = item.FranchiseId,
+                    FullName = item.FullName,
+                    TriCode = item.TriCode,
+                    RawTriCode = item.RawTricode,
+                    LeagueId = item.LeagueId
                 });
             }
 
@@ -89,46 +89,50 @@ namespace NHLApp.Application.Services
 
         public async Task TransformPlayersAsync()
         {
-            var rosterRaws = _db.RawApiResponses
-                .Where(r => r.Endpoint == "roster")
-                .ToList();
+            // Fetch all raw roster JSON payloads from staging
+            var rosterRaws = _db.RawApiResponses.Where(r => r.Endpoint == "roster").ToList();
 
-            var existingPlayerIds = _db.Players
-                .Select(p => p.PlayerId)
-                .ToHashSet();
-
+            // Load existing tracking sets to avoid duplicates and round-trips
+            var existingPlayerIds = _db.Players.Select(p => p.PlayerId).ToHashSet();
             var addedPlayerIds = new HashSet<int>();
+
+            var jsonOptions = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
 
             foreach (var raw in rosterRaws)
             {
-                var root = JsonDocument.Parse(raw.ResponseJson).RootElement;
-                var sections = new[] { "forwards", "defensemen", "goalies" };
-                foreach (var section in sections)
+                // Automatically deserialize the entire nested structure using the DTO
+                NhlRosterRootDTO? rosterData = JsonSerializer.Deserialize<NhlRosterRootDTO>(raw.ResponseJson, jsonOptions);
+                if (rosterData == null) continue;
+
+                // Flatten the three positional lists into a single collection
+                IEnumerable<NhlPlayerDTO> allPlayers = rosterData.Forwards
+                    .Concat(rosterData.Defensemen)
+                    .Concat(rosterData.Goalies);
+
+                // Idempotent insertion: check for existing players before adding
+                foreach (NhlPlayerDTO playerDto in allPlayers)
                 {
-                    if (!root.TryGetProperty(section, out var players))
+                    if (existingPlayerIds.Contains(playerDto.Id) || addedPlayerIds.Contains(playerDto.Id))
                         continue;
-                    foreach (var item in players.EnumerateArray())
+
+                    _db.Players.Add(new Player
                     {
-                        var playerId = item.GetProperty("id").GetInt32();
-                        if (existingPlayerIds.Contains(playerId) || addedPlayerIds.Contains(playerId))
-                            continue;
-                        _db.Players.Add(new Player
-                        {
-                            PlayerId = playerId,
-                            FirstName = item.GetProperty("firstName").GetProperty("default").GetString() ?? string.Empty,
-                            LastName = item.GetProperty("lastName").GetProperty("default").GetString() ?? string.Empty,
-                            Position = item.GetProperty("positionCode").GetString() ?? string.Empty,
-                            ShootsCatches = item.TryGetProperty("shootsCatches", out var sc) ? sc.GetString() ?? string.Empty : string.Empty,
-                            HeightInCentimeters = item.TryGetProperty("heightInCentimeters", out var h) ? h.GetInt32() : null,
-                            WeightInKilograms = item.TryGetProperty("weightInKilograms", out var w) ? w.GetInt32() : null,
-                            BirthDate = item.TryGetProperty("birthDate", out var bd) ? DateOnly.Parse(bd.GetString()!) : null,
-                            BirthCity = item.TryGetProperty("birthCity", out var bc) ? bc.GetProperty("default").GetString() : null,
-                            BirthCountry = item.TryGetProperty("birthCountry", out var bco) ? bco.GetString() : null,
-                        });
-                        addedPlayerIds.Add(playerId);
-                    }
+                        PlayerId = playerDto.Id,
+                        FirstName = playerDto.FirstName.Default,
+                        LastName = playerDto.LastName.Default,
+                        Position = playerDto.PositionCode,
+                        ShootsCatches = playerDto.ShootsCatches ?? string.Empty,
+                        HeightInCentimeters = playerDto.HeightInCentimeters,
+                        WeightInKilograms = playerDto.WeightInKilograms,
+                        BirthDate = playerDto.BirthDate != null ? DateOnly.Parse(playerDto.BirthDate) : null,
+                        BirthCity = playerDto.BirthCity?.Default,
+                        BirthCountry = playerDto.BirthCountry
+                    });
+
+                    addedPlayerIds.Add(playerDto.Id);
                 }
             }
+
             await _db.SaveChangesAsync();
         }
     }
