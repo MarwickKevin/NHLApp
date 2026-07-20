@@ -16,7 +16,7 @@ namespace NHLApp.Worker
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
-            _logger.LogInformation("Importer démarré");
+            _logger.LogInformation("Worker NHLApp démarré");
 
             using var scope = _serviceProvider.CreateScope();
             var db = scope.ServiceProvider.GetRequiredService<NHLAppDbContext>();
@@ -44,7 +44,8 @@ namespace NHLApp.Worker
             await transformService.TransformPlayersAsync();
             _logger.LogInformation("Transformation des joueurs terminée");
 
-
+            await transformService.TransformRostersAsync();
+            _logger.LogInformation("Transformation des rosters terminée");
         }
     }
 }

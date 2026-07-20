@@ -18,7 +18,8 @@ namespace NHLApp.Application.DTOs
         string FullName,
         string TriCode,
         string RawTricode,
-        int LeagueId
+        int LeagueId,
+        int SeasonId
     );
 }
 

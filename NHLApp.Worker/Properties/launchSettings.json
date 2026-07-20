@@ -1,6 +1,6 @@
 {
   "profiles": {
-    "NHLApp.Importer": {
+    "NHLApp.Worker": {
       "commandName": "Project",
       "environmentVariables": {
         "DOTNET_ENVIRONMENT": "Development"

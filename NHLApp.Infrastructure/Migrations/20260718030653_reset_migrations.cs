@@ -6,7 +6,7 @@ using Microsoft.EntityFrameworkCore.Migrations;
 namespace NHLApp.Infrastructure.Migrations
 {
     /// <inheritdoc />
-    public partial class InitialCreate : Migration
+    public partial class reset_migrations : Migration
     {
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
@@ -44,7 +44,7 @@ namespace NHLApp.Infrastructure.Migrations
                 });
 
             migrationBuilder.CreateTable(
-                name: "RawApiResponses",
+                name: "RawApiResponse",
                 columns: table => new
                 {
                     Id = table.Column<int>(type: "int", nullable: false)
@@ -56,7 +56,7 @@ namespace NHLApp.Infrastructure.Migrations
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("PK_RawApiResponses", x => x.Id);
+                    table.PrimaryKey("PK_RawApiResponse", x => x.Id);
                 });
 
             migrationBuilder.CreateTable(
@@ -93,6 +93,47 @@ namespace NHLApp.Infrastructure.Migrations
                         principalColumn: "FranchiseId");
                 });
 
+            migrationBuilder.CreateTable(
+                name: "TeamRoster",
+                columns: table => new
+                {
+                    TeamId = table.Column<int>(type: "int", nullable: false),
+                    PlayerId = table.Column<int>(type: "int", nullable: false),
+                    SeasonId = table.Column<int>(type: "int", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_TeamRoster", x => new { x.TeamId, x.PlayerId, x.SeasonId });
+                    table.ForeignKey(
+                        name: "FK_TeamRoster_Players_PlayerId",
+                        column: x => x.PlayerId,
+                        principalTable: "Players",
+                        principalColumn: "PlayerId",
+                        onDelete: ReferentialAction.Cascade);
+                    table.ForeignKey(
+                        name: "FK_TeamRoster_Seasons_SeasonId",
+                        column: x => x.SeasonId,
+                        principalTable: "Seasons",
+                        principalColumn: "SeasonId",
+                        onDelete: ReferentialAction.Cascade);
+                    table.ForeignKey(
+                        name: "FK_TeamRoster_Teams_TeamId",
+                        column: x => x.TeamId,
+                        principalTable: "Teams",
+                        principalColumn: "TeamId",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateIndex(
+                name: "IX_TeamRoster_PlayerId",
+                table: "TeamRoster",
+                column: "PlayerId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_TeamRoster_SeasonId",
+                table: "TeamRoster",
+                column: "SeasonId");
+
             migrationBuilder.CreateIndex(
                 name: "IX_Teams_FranchiseId",
                 table: "Teams",
@@ -103,10 +144,13 @@ namespace NHLApp.Infrastructure.Migrations
         protected override void Down(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.DropTable(
-                name: "Players");
+                name: "RawApiResponse");
 
             migrationBuilder.DropTable(
-                name: "RawApiResponses");
+                name: "TeamRoster");
+
+            migrationBuilder.DropTable(
+                name: "Players");
 
             migrationBuilder.DropTable(
                 name: "Seasons");

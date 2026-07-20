@@ -10,10 +10,10 @@ namespace NHLApp.Domain.Interfaces
     {
         Task<string> GetSeasonsAsync();
         Task<string> GetTeamsAsync();
+        Task<string> GetTeamRosterAsync(string teamCode, int seasonId);
+        Task<string> GetTeamRosterSeasonsAsync(string teamCode);
         //Task<string> GetPlayerAsync(int playerId);
         //Task<string> GetPlayByPlayAsync(int gameId);
         //Task<string> GetBoxscoreAsync(int gameId);
-        Task<string> GetTeamRosterAsync(string teamCode, int seasonId);
-        Task<string> GetTeamRosterSeasonsAsync(string teamCode);
     }
 }

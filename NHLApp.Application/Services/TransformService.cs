@@ -1,4 +1,6 @@
-﻿using NHLApp.Application.DTOs;
+﻿
+using Microsoft.EntityFrameworkCore;
+using NHLApp.Application.DTOs;
 using NHLApp.Domain.Entities;
 using NHLApp.Infrastructure.Data;
 using System;
@@ -11,6 +13,8 @@ using System.Threading.Tasks;
 
 namespace NHLApp.Application.Services
 {
+    // TODO: Add logging and error handling to the TransformService methods for better observability and resilience.
+
     public class TransformService
     {
         private readonly NHLAppDbContext _db;
@@ -20,18 +24,26 @@ namespace NHLApp.Application.Services
             _db = db;
         }
 
+        /// <summary>
+        /// Transforms raw season JSON payloads into structured Season entities in the database.
+        /// </summary>
+        /// <returns></returns>
         public async Task TransformSeasonsAsync()
         {
-            var raw = _db.RawApiResponses.FirstOrDefault(r => r.Endpoint == "season");
-            if (raw == null) return;
+            var raw = await _db.RawApiResponses.FirstOrDefaultAsync(r => r.Endpoint == "season");
+            if (raw == null || string.IsNullOrWhiteSpace(raw.ResponseJson)) return;
 
             // Deserialize the JSON array of season IDs into a list of integers
-            var seasonIds = JsonSerializer.Deserialize<List<int>>(raw.ResponseJson)!;
+            List<int>? seasonIds = JsonSerializer.Deserialize<List<int>>(raw.ResponseJson);
+            if (seasonIds == null) return;
 
-            // Idempotent insertion: only add seasons that don't already exist in the database
+            // Load existing season IDs into a HashSet for efficient lookups to avoid duplicates
+            HashSet<int> existingSeasonIds = _db.Seasons.Select(s => s.SeasonId).ToHashSet();
+
+            // Loop through the deserialized season IDs and add any new seasons to the database
             foreach (var seasonId in seasonIds)
             {
-                if (_db.Seasons.Any(s => s.SeasonId == seasonId)) continue;
+                if (existingSeasonIds.Contains(seasonId)) continue;
 
                 _db.Seasons.Add(new Season
                 {
@@ -39,80 +51,131 @@ namespace NHLApp.Application.Services
                     StartYear = seasonId / 10000,
                     EndYear = seasonId % 10000
                 });
+
+                existingSeasonIds.Add(seasonId);
             }
 
             await _db.SaveChangesAsync();
         }
 
+        /// <summary>
+        /// Transforms raw team JSON payloads into structured Team and Franchise entities in the database.
+        /// </summary>
+        /// <returns></returns>
         public async Task TransformTeamsAsync()
-        {
-            var raw = _db.RawApiResponses.FirstOrDefault(r => r.Endpoint == "team");
-            if (raw == null) return;
+        {            
+            var teamRaws = _db.RawApiResponses.Where(r => r.Endpoint == "team");
 
-            // Automatic deserialization using the DTO (ignoring JSON case)
+            // Load existing structures into memory once to prevent duplicates
+            HashSet<int> knownSeasonIds = _db.Seasons.Select(s => s.SeasonId).ToHashSet();
+            HashSet<int> knownFranchiseIds = _db.Franchises.Select(f => f.FranchiseId).ToHashSet();
+            HashSet<(int TeamId, int SeasonId)> knownTeamSeasons = _db.Teams
+                .Select(t => new ValueTuple<int, int>(t.TeamId, t.SeasonId))
+                .ToHashSet();
+
             var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
-            NhlTeamRootDTO? root = JsonSerializer.Deserialize<NhlTeamRootDTO>(raw.ResponseJson, options);
-            if (root?.Data == null) return;
 
-            var addedFranchiseIds = new HashSet<int>();
+            // Stream through every chunk of team data in your staging table
+            await foreach (var raw in teamRaws.AsAsyncEnumerable())
+            {
+                if (string.IsNullOrWhiteSpace(raw.ResponseJson)) 
+                    continue;
 
-            // Idempotent insertion: check for existing franchises and teams before adding
-            foreach (NhlTeamItemDTO item in root.Data)
-            {                
-                if (item.FranchiseId.HasValue
-                    && !addedFranchiseIds.Contains(item.FranchiseId.Value)
-                    && !_db.Franchises.Any(f => f.FranchiseId == item.FranchiseId.Value))
+                // Deserialize the JSON payload into a structured DTO object
+                NhlTeamRootDTO? root = JsonSerializer.Deserialize<NhlTeamRootDTO>(raw.ResponseJson, options);
+                if (root?.Data == null) 
+                    continue;
+
+                // Loop through each team item
+                foreach (NhlTeamItemDTO item in root.Data)
                 {
-                    _db.Franchises.Add(new Franchise
+                    // Add new seasons to the Seasons table if they don't already exist
+                    if (!knownSeasonIds.Contains(item.SeasonId))
                     {
-                        FranchiseId = item.FranchiseId.Value,
-                        Name = item.FullName
+                        int startYear = 0;
+                        int endYear = 0;
+                        string seasonStr = item.SeasonId.ToString();
+                        if (seasonStr.Length == 8)
+                        {
+                            int.TryParse(seasonStr.Substring(0, 4), out startYear);
+                            int.TryParse(seasonStr.Substring(4, 4), out endYear);
+                        }
+
+                        _db.Seasons.Add(new Season
+                        {
+                            SeasonId = item.SeasonId,
+                            StartYear = startYear,
+                            EndYear = endYear
+                        });
+                        knownSeasonIds.Add(item.SeasonId);
+                    }
+
+                    // Add new franchises to the Franchises table if they don't already exist
+                    if (item.FranchiseId.HasValue && !knownFranchiseIds.Contains(item.FranchiseId.Value))
+                    {
+                        _db.Franchises.Add(new Franchise
+                        {
+                            FranchiseId = item.FranchiseId.Value,
+                            Name = item.FullName
+                        });
+                        knownFranchiseIds.Add(item.FranchiseId.Value);
+                    }
+
+                    // Add new team-season relationships to the Teams table if they don't already exist
+                    if (knownTeamSeasons.Contains((item.Id, item.SeasonId))) 
+                        continue;
+
+                    _db.Teams.Add(new Team
+                    {
+                        TeamId = item.Id,
+                        SeasonId = item.SeasonId,
+                        FranchiseId = item.FranchiseId,
+                        FullName = item.FullName,
+                        TriCode = item.TriCode,
+                        RawTriCode = item.RawTricode,
+                        LeagueId = item.LeagueId
                     });
-                    addedFranchiseIds.Add(item.FranchiseId.Value);
+                    knownTeamSeasons.Add((item.Id, item.SeasonId));
                 }
-
-                if (_db.Teams.Any(t => t.TeamId == item.Id)) continue;
-
-                _db.Teams.Add(new Team
-                {
-                    TeamId = item.Id,
-                    FranchiseId = item.FranchiseId,
-                    FullName = item.FullName,
-                    TriCode = item.TriCode,
-                    RawTriCode = item.RawTricode,
-                    LeagueId = item.LeagueId
-                });
             }
 
             await _db.SaveChangesAsync();
         }
 
+        /// <summary>
+        /// Transforms raw roster JSON payloads into structured Player entities in the database.
+        /// </summary>
+        /// <returns></returns>
         public async Task TransformPlayersAsync()
         {
             // Fetch all raw roster JSON payloads from staging
-            var rosterRaws = _db.RawApiResponses.Where(r => r.Endpoint == "roster").ToList();
+            var rosterRaws = _db.RawApiResponses.Where(r => r.Endpoint == "roster");
 
             // Load existing tracking sets to avoid duplicates and round-trips
-            var existingPlayerIds = _db.Players.Select(p => p.PlayerId).ToHashSet();
-            var addedPlayerIds = new HashSet<int>();
+            HashSet<int> knownPlayerIds = _db.Players.Select(p => p.PlayerId).ToHashSet();
 
             var jsonOptions = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
 
-            foreach (var raw in rosterRaws)
+            // Loop through each raw roster payload
+            await foreach (var raw in rosterRaws.AsAsyncEnumerable())                       /// *AsAsyncEnumerable() here instead of ToListAsync to avoid loading all data into memory at once*
             {
+                if (string.IsNullOrWhiteSpace(raw.ResponseJson)) 
+                    continue;
+
                 // Automatically deserialize the entire nested structure using the DTO
                 NhlRosterRootDTO? rosterData = JsonSerializer.Deserialize<NhlRosterRootDTO>(raw.ResponseJson, jsonOptions);
-                if (rosterData == null) continue;
+                if (rosterData == null) 
+                    continue;
 
                 // Flatten the three positional lists into a single collection
-                IEnumerable<NhlPlayerDTO> allPlayers = rosterData.Forwards
-                    .Concat(rosterData.Defensemen)
-                    .Concat(rosterData.Goalies);
+                IEnumerable<NhlPlayerDTO> allPlayers = (rosterData.Forwards ?? Enumerable.Empty<NhlPlayerDTO>())
+                     .Concat(rosterData.Defensemen ?? Enumerable.Empty<NhlPlayerDTO>())
+                     .Concat(rosterData.Goalies ?? Enumerable.Empty<NhlPlayerDTO>());
 
-                // Idempotent insertion: check for existing players before adding
+                // Loop through each player DTO and add new players to the Players table if they don't already exist
                 foreach (NhlPlayerDTO playerDto in allPlayers)
                 {
-                    if (existingPlayerIds.Contains(playerDto.Id) || addedPlayerIds.Contains(playerDto.Id))
+                    if (knownPlayerIds.Contains(playerDto.Id))
                         continue;
 
                     _db.Players.Add(new Player
@@ -129,7 +192,98 @@ namespace NHLApp.Application.Services
                         BirthCountry = playerDto.BirthCountry
                     });
 
-                    addedPlayerIds.Add(playerDto.Id);
+                    knownPlayerIds.Add(playerDto.Id);
+                }
+            }
+            await _db.SaveChangesAsync();
+        }
+
+        /// <summary>
+        /// Transforms raw roster JSON payloads into structured TeamRoster relationship entities in the database.
+        /// </summary>
+        /// <returns></returns>
+        public async Task TransformRostersAsync()
+        {
+            // Fetch all raw seasonal roster payloads from staging
+            var rosterRaws = _db.RawApiResponses.Where(r => r.Endpoint == "roster");        /// *AsAsyncEnumerable() in loop to save memory*
+
+            // Load existing TeamRoster relationships into memory to avoid duplicates and round-trips
+            HashSet<(int TeamId, int PlayerId, int SeasonId)> existingRosters = _db.TeamRosters
+                .Select(tr => ValueTuple.Create(tr.TeamId, tr.PlayerId, tr.SeasonId))
+                .ToHashSet();
+            HashSet<int> validPlayerIds = _db.Players.Select(p => p.PlayerId).ToHashSet();
+            HashSet<int> validSeasonIds = _db.Seasons.Select(s => s.SeasonId).ToHashSet();
+
+            // Create a lookup dictionary for team tri-codes and season IDs to their corresponding TeamId for quick access
+            Dictionary<(string TriCode, int SeasonId), int> teamLookup = _db.Teams
+                .AsEnumerable() // Pull evaluation into memory to safely use GroupBy/ValueTuple
+                .GroupBy(t => new ValueTuple<string, int>(t.TriCode, t.SeasonId))
+                .ToDictionary(g => g.Key, g => g.First().TeamId);
+
+            JsonSerializerOptions jsonOptions = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+
+            await foreach (RawApiResponse raw in rosterRaws.AsAsyncEnumerable())            /// *AsAsyncEnumerable() here instead of ToListAsync to avoid loading all data into memory at once*
+            {
+                // Skip if the EntityId is not in the expected format ("roster-TEAMCODE-SEASONID")
+                string[] keyParts = raw.EntityId.Split('-');
+                if (keyParts.Length < 3) 
+                    continue;
+
+                // Extract the team tri-code and season ID from the EntityId
+                int totalParts = keyParts.Length;               
+                
+                string teamTriCode = keyParts[totalParts - 2].Trim().ToUpper();
+                if (!int.TryParse(keyParts[totalParts - 1], out int seasonId)) 
+                    continue;
+
+
+                // --- TEMPORARY DEBUGGING BLOCK ---
+                var hasTeam = teamLookup.TryGetValue((teamTriCode, seasonId), out int debugTeamId);
+                var hasSeason = validSeasonIds.Contains(seasonId);
+
+                if (!hasTeam || !hasSeason)
+                {
+                    Console.WriteLine($"[MISSING] Key Parts: '{raw.EntityId}' -> Parsed TriCode: '{teamTriCode}', Season: {seasonId}");
+                    Console.WriteLine($"   -> Match in teamLookup? {hasTeam} (Found TeamId: {(hasTeam ? debugTeamId : "N/A")})");
+                    Console.WriteLine($"   -> Match in validSeasonIds? {hasSeason}");
+
+                    // Let's check if the team code exists under a different casing or with spaces
+                    var similarTeams = teamLookup.Keys.Where(k => k.SeasonId == seasonId).Select(k => k.TriCode);
+                    Console.WriteLine($"   -> Available TriCodes for season {seasonId} in DB: {string.Join(", ", similarTeams)}");
+                }
+                // ---------------------------------
+
+
+                // Ensure the team and season exist in our database core tables before processing the roster
+                if (!teamLookup.TryGetValue((teamTriCode, seasonId), out int teamId) || !validSeasonIds.Contains(seasonId))
+                    continue;
+
+                // Automatically deserialize the entire nested structure using the DTO
+                NhlRosterRootDTO? rosterData = JsonSerializer.Deserialize<NhlRosterRootDTO>(raw.ResponseJson, jsonOptions);
+
+                // Skip if the roster data is null
+                if (rosterData == null) 
+                    continue;
+
+                // Flatten the three positional lists into a single collection for processing
+                IEnumerable<NhlPlayerDTO> allPlayers = (rosterData.Forwards ?? Enumerable.Empty<NhlPlayerDTO>())
+                .Concat(rosterData.Defensemen ?? Enumerable.Empty<NhlPlayerDTO>())
+                .Concat(rosterData.Goalies ?? Enumerable.Empty<NhlPlayerDTO>());
+
+                // Loop through each player DTO and add new TeamRoster relationships to the TeamRosters table if they don't already exist
+                foreach (NhlPlayerDTO playerDto in allPlayers)
+                {                    
+                    if (!validPlayerIds.Contains(playerDto.Id) || existingRosters.Contains((teamId, playerDto.Id, seasonId)))
+                        continue;
+
+                    _db.TeamRosters.Add(new TeamRosters
+                    {
+                        TeamId = teamId,
+                        PlayerId = playerDto.Id,
+                        SeasonId = seasonId
+                    });
+                                        
+                    existingRosters.Add((teamId, playerDto.Id, seasonId));
                 }
             }
 

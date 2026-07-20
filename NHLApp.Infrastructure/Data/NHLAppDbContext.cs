@@ -19,23 +19,21 @@ namespace NHLApp.Infrastructure.Data
         public DbSet<Team> Teams { get; set; }
         public DbSet<Player> Players { get; set; }
         public DbSet<RawApiResponse> RawApiResponses { get; set; }
+        public DbSet<TeamRosters> TeamRosters { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);
+
+            modelBuilder.Entity<RawApiResponse>()
+                .Property(r => r.ResponseJson)
+                .HasColumnType("nvarchar(max)");
 
             modelBuilder.Entity<Franchise>()
                 .HasKey(f => f.FranchiseId);
 
             modelBuilder.Entity<Franchise>()
                 .Property(f => f.FranchiseId)
-                .ValueGeneratedNever();
-
-            modelBuilder.Entity<Team>()
-                .HasKey(t => t.TeamId);
-
-            modelBuilder.Entity<Team>()
-                .Property(t => t.TeamId)
                 .ValueGeneratedNever();
 
             modelBuilder.Entity<Player>()
@@ -53,14 +51,34 @@ namespace NHLApp.Infrastructure.Data
                 .ValueGeneratedNever();
 
             modelBuilder.Entity<Team>()
+                .HasKey(t => new { t.TeamId, t.SeasonId });
+
+            modelBuilder.Entity<Team>()
+                .Property(t => t.TeamId)
+                .ValueGeneratedNever();
+
+            modelBuilder.Entity<Team>()
                 .HasOne(t => t.Franchise)
                 .WithMany(f => f.Teams)
                 .HasForeignKey(t => t.FranchiseId);
 
-            modelBuilder.Entity<RawApiResponse>()
-                .Property(r => r.ResponseJson)
-                .HasColumnType("nvarchar(max)");
-        }
+            modelBuilder.Entity<Team>()
+                .HasOne(t => t.Season)
+                .WithMany()
+                .HasForeignKey(t => t.SeasonId);
 
+            modelBuilder.Entity<TeamRosters>()
+                .HasKey(tr => new { tr.TeamId, tr.PlayerId, tr.SeasonId });
+
+            modelBuilder.Entity<TeamRosters>()
+                .HasOne(tr => tr.Team)
+                .WithMany()
+                .HasForeignKey(tr => new { tr.TeamId, tr.SeasonId });
+
+            modelBuilder.Entity<TeamRosters>()
+                .HasOne(tr => tr.Player)
+                .WithMany()
+                .HasForeignKey(tr => tr.PlayerId);
+        }
     }
 }

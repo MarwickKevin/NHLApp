@@ -14,7 +14,9 @@ namespace NHLApp.Domain.Entities
         public string TriCode { get; set; } = string.Empty;
         public string RawTriCode { get; set; } = string.Empty;
         public int LeagueId { get; set; }
+        public int SeasonId { get; set; }
 
         public Franchise? Franchise { get; set; }
+        public Season? Season { get; set; }
     }
 }
