@@ -23,23 +23,29 @@ namespace NHLApp.Worker
             var importService = scope.ServiceProvider.GetRequiredService<ImportService>();
             var transformService = scope.ServiceProvider.GetRequiredService<TransformService>();
 
+
+            // Import data from the NHL API into the database
+            
             await importService.ImportSeasonsAsync();
             _logger.LogInformation("Import des saisons terminé");
-
-            await transformService.TransformSeasonsAsync();
-            _logger.LogInformation("Transformation des saisons terminée");
 
             await importService.ImportTeamsAsync();
             _logger.LogInformation("Import des équipes terminé");
 
-            await transformService.TransformTeamsAsync();
-            _logger.LogInformation("Transformation des équipes terminée");
-
             await importService.ImportRosterSeasonsAsync();
             _logger.LogInformation("Import des saisons par équipe terminé");
-            
+
             await importService.ImportRostersAsync();
             _logger.LogInformation("Import des rosters terminé");
+
+
+            // Transform data from the database into the application models
+
+            await transformService.TransformSeasonsAsync();
+            _logger.LogInformation("Transformation des saisons terminée");
+
+            await transformService.TransformTeamsAsync();
+            _logger.LogInformation("Transformation des équipes terminée");    
 
             await transformService.TransformPlayersAsync();
             _logger.LogInformation("Transformation des joueurs terminée");

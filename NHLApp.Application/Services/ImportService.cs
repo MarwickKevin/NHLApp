@@ -1,38 +1,34 @@
 ﻿using NHLApp.Domain.Entities;
 using NHLApp.Domain.Interfaces;
 using NHLApp.Infrastructure.Data;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
 using System.Text.Json;
-using System.Threading.Tasks;
-using NHLApp.Domain;
+using NHLApp.Application.DTOs;
+using Microsoft.Extensions.Logging;
+using NHLApp.Application.Extensions;
 
 namespace NHLApp.Application.Services
 {
-    // TODO: Add logging and error handling to this service to improve maintainability and debuggability
-    // TODO: Consider adding caching to reduce the number of API calls and improve performance
-    // TODO: Add retry logic for API calls to handle transient failures and improve reliability   
+    // TODO: Add retry logic for API calls to handle transient failures and improve reliability    
 
+    // TODO Make error handling consistent across all methods, including logging and exception throwing.
+
+    // TODO: Use hash comparison for JSON content to determine if an update is necessary, instead of relying solely on timestamps
 
     public class ImportService
     {
         private readonly INHLApiClient _nhlClient;
         private readonly NHLAppDbContext _db;
+        private readonly ILogger<ImportService> _logger;
 
-        public ImportService(INHLApiClient nhlClient, NHLAppDbContext db)
+        public ImportService(INHLApiClient nhlClient, NHLAppDbContext db, ILogger<ImportService> logger)
         {
             _nhlClient = nhlClient;
             _db = db;
+            this._logger = logger;
         }
 
         // Constants for API throttling to avoid hitting the NHL API too quickly
-        private const int ApiThrottlingDelay = 50;
-
-        // Counters for monitoring the number of saves to the database and API calls made during the import process
-        private int SavesToDB = 0;
-        private int ApiCallsMade = 0;
+        private const int ApiThrottlingDelay = 150;
 
         /// <summary>
         /// Imports the latest seasons from the NHL API and stores them in the database.
@@ -44,40 +40,42 @@ namespace NHLApp.Application.Services
             var existing = _db.RawApiResponses
                 .FirstOrDefault(r => r.Endpoint == "season");
 
-            // If the seasons have already been fetched within the last 24 hours, skip the import to avoid unnecessary API calls
+            // If the seasons have already been imported within the last 24 hours, skip (hash comparison could be used here instead of timestamp)
             if (existing != null && existing.FetchedAt > DateTime.UtcNow.AddDays(-1))
                 return;
-
-            // Retrieve the latest seasons from the NHL API
-            var json = await _nhlClient.GetSeasonsAsync();
-            ApiCallsMade++;
-            Console.WriteLine("Api call made = " + ApiCallsMade);
-
-            if (existing != null)
+            try
             {
-                // Only update if the JSON content actually changed to avoid useless DB writes
-                if (existing.ResponseJson != json)
+                // Fetch seasons from the NHL API
+                var json = await _nhlClient.GetSeasonsAsync();
+
+                // Update the existing record if it exists, otherwise insert a new record
+                if (existing != null)
                 {
-                    existing.ResponseJson = json;
-                    existing.FetchedAt = DateTime.UtcNow;
+                    // Only update if the JSON content actually changed
+                    if (existing.ResponseJson != json)
+                    {
+                        existing.ResponseJson = json;
+                        existing.FetchedAt = DateTime.UtcNow;
+                        await _db.SaveChangesAsync();
+                    }
                 }
-            }
-            else
-            {
-                // Insert a brand new staging record
-                _db.RawApiResponses.Add(new RawApiResponse
+                else
                 {
-                    Endpoint = "season",
-                    EntityId = "all",
-                    ResponseJson = json,
-                    FetchedAt = DateTime.UtcNow
-                });
-            }
+                    _db.RawApiResponses.Add(new RawApiResponse
+                    {
+                        Endpoint = "season",
+                        EntityId = "all",
+                        ResponseJson = json,
+                        FetchedAt = DateTime.UtcNow
+                    });
+                    await _db.SaveChangesAsync();
+                }
 
-            await _db.SaveChangesAsync();
-            // Increment the linesProcessed counter and log it to the console for monitoring purposes
-            SavesToDB++;
-            Console.WriteLine("Saves to DB = " + SavesToDB);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to import endpoint {Endpoint} for entity {EntityId}.", "season", "all");
+            }
         }
 
         /// <summary>
@@ -90,29 +88,43 @@ namespace NHLApp.Application.Services
             var existing = _db.RawApiResponses
                 .FirstOrDefault(r => r.Endpoint == "team");
 
-            // If the teams have already been fetched within the last 24 hours, skip the import to avoid unnecessary API calls
+            // If the teams have already been imported within the last 24 hours, skip (hash comparison could be used here instead of timestamp)
             if (existing != null && existing.FetchedAt > DateTime.UtcNow.AddDays(-1))
                 return;
 
-            // Retrieve the latest teams from the NHL API
-            var json = await _nhlClient.GetTeamsAsync();
-            ApiCallsMade++;
-            Console.WriteLine("Api call made = " + ApiCallsMade);
-
-            // Store the raw response in the database
-            _db.RawApiResponses.Add(new RawApiResponse
+            try
             {
-                Endpoint = "team",
-                EntityId = "all",
-                ResponseJson = json,
-                FetchedAt = DateTime.UtcNow
-            });
+                // Fetch the latest teams from the NHL API
+                var json = await _nhlClient.GetTeamsAsync();
 
-            await _db.SaveChangesAsync();
+                // Update the existing record if it exists, otherwise insert a new record
+                if (existing != null)
+                {
+                    // Only update if the JSON content actually changed
+                    if (existing.ResponseJson != json)
+                    {
+                        existing.ResponseJson = json;
+                        existing.FetchedAt = DateTime.UtcNow;
+                        await _db.SaveChangesAsync();
+                    }
+                }
+                else
+                {
+                    _db.RawApiResponses.Add(new RawApiResponse
+                    {
+                        Endpoint = "team",
+                        EntityId = "all",
+                        ResponseJson = json,
+                        FetchedAt = DateTime.UtcNow
+                    });
+                    await _db.SaveChangesAsync();
+                }
 
-            // Increment the linesProcessed counter and log it to the console for monitoring purposes
-            SavesToDB++;
-            Console.WriteLine("Saves to DB = " + SavesToDB);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to import endpoint {Endpoint} for entity {EntityId}.", "team", "all");
+            }
         }
 
         /// <summary>
@@ -121,39 +133,61 @@ namespace NHLApp.Application.Services
         /// <returns></returns>
         public async Task ImportRosterSeasonsAsync()
         {
-            var teams = _db.Teams
+            // Check if the team data has already been imported
+            var teamRaw = _db.RawApiResponses.FirstOrDefault(r => r.Endpoint == "team");
+            if (teamRaw == null || string.IsNullOrWhiteSpace(teamRaw.ResponseJson))
+            {
+                _logger.LogError("Cannot import roster seasons because raw team data has not been imported yet.");
+                return;
+            }
+
+            // Deserialize the raw team data to extract the triCodes for each team
+            if (!teamRaw.ResponseJson.TryDeserializeSafe<NhlTeamRootDTO>(_logger, out var root, "raw team data", out _) || root?.Data == null)
+            {
+                return;
+            }
+
+            var triCodes = root.Data
                 .Where(t => t.TriCode != "TBD" && t.TriCode != "NHL")
+                .Select(t => t.TriCode)
+                .Distinct()
                 .ToList();
 
+            // Load existing records into memory to avoid N+1 queries
+            var existingRecords = _db.RawApiResponses
+                .Where(r => r.Endpoint == "roster-seasons")
+                .Select(r => new { r.EntityId, r.FetchedAt })
+                .ToDictionary(r => r.EntityId, r => r.FetchedAt);
+
+            // Loop through each team and import the roster seasons data
             bool hasChanges = false;
-
-            // Loop through each team and fetch the roster seasons data
-            foreach (var team in teams)
+            foreach (var triCode in triCodes)
             {
-                var key = $"roster-seasons-{team.TriCode}";
-
                 // Check if the roster seasons for this team have already been imported
-                var existing = _db.RawApiResponses
-                    .FirstOrDefault(r => r.EntityId == key);
+                var key = $"roster-seasons-{triCode}";
+                existingRecords.TryGetValue(key, out var fetchedAt);
 
-                // If the roster seasons for this team have already been fetched within the last 24 hours, skip
-                if (existing != null && existing.FetchedAt > DateTime.UtcNow.AddDays(-1))
+                // If the roster seasons for this team have already been imported within the last 24 hours, skip (hash comparison could be used here instead of timestamp)
+                if (fetchedAt > DateTime.UtcNow.AddDays(-1))
                     continue;
 
-                // Retrieve the roster seasons for this team from the NHL API
+                // Fetch the roster seasons for this team from the NHL API
                 try
                 {
-                    var json = await _nhlClient.GetTeamRosterSeasonsAsync(team.TriCode);
-                    ApiCallsMade++;
-                    Console.WriteLine("Api call made = " + ApiCallsMade);
+                    // Fetch the roster seasons for this team from the NHL API
+                    var json = await _nhlClient.GetTeamRosterSeasonsAsync(triCode);
 
-                    // Store the raw response in the database, either by updating an existing record or inserting a new one
-                    if (existing != null)
+                    // Check if the record already exists in the local context or database
+                    var dbRecord = _db.RawApiResponses.Local.FirstOrDefault(r => r.EntityId == key)
+                                            ?? _db.RawApiResponses.FirstOrDefault(r => r.EntityId == key);
+
+                    // Update the existing record if it exists, otherwise insert a new record
+                    if (dbRecord != null)
                     {
-                        if (existing.ResponseJson != json)
+                        if (dbRecord.ResponseJson != json)
                         {
-                            existing.ResponseJson = json;
-                            existing.FetchedAt = DateTime.UtcNow;
+                            dbRecord.ResponseJson = json;
+                            dbRecord.FetchedAt = DateTime.UtcNow;
                             hasChanges = true;
                         }
                     }
@@ -168,22 +202,17 @@ namespace NHLApp.Application.Services
                         });
                         hasChanges = true;
                     }
-
                     // Throttle delay
                     await Task.Delay(ApiThrottlingDelay);
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"Erreur roster-seasons {team.TriCode}: {ex.Message}");
+                    _logger.LogError(ex, "Failed to import endpoint {Endpoint} for entity {EntityId}.", "roster-seasons", triCode);
                 }
             }
-
-            // Save tracking details if any additions/updates occurred during the loop for all teams
             if (hasChanges)
             {
                 await _db.SaveChangesAsync();
-                SavesToDB++;
-                Console.WriteLine("Saves to DB = " + SavesToDB);
             }
         }
 
@@ -193,49 +222,78 @@ namespace NHLApp.Application.Services
         /// <returns></returns>
         public async Task ImportRostersAsync()
         {
-            // Retrieve all teams from the database, excluding placeholder teams
-            var teams = _db.Teams
+            // Check if the team data has been imported
+            var teamRaw = _db.RawApiResponses.FirstOrDefault(r => r.Endpoint == "team");
+            if (teamRaw == null || string.IsNullOrWhiteSpace(teamRaw.ResponseJson))
+            {
+                _logger.LogError("Cannot import rosters because raw team data has not been imported yet.");
+                return;
+            }
+
+            // Deserialize the raw team data to extract the triCodes
+            if (!teamRaw.ResponseJson.TryDeserializeSafe<NhlTeamRootDTO>(_logger, out var root, "team JSON", out _) || root?.Data == null)
+            {
+                return;
+            }
+
+            // Get the distinct triCodes for all teams, excluding placeholder codes like "TBD" and "NHL"
+            var triCodes = root.Data
                 .Where(t => t.TriCode != "TBD" && t.TriCode != "NHL")
+                .Select(t => t.TriCode)
+                .Distinct()
                 .ToList();
 
-            // For each team, retrieve the roster seasons and then fetch the roster for each season
-            foreach (var team in teams)
+            // Load existing roster records into memory to avoid N+1 queries
+            var existingRosterRecords = _db.RawApiResponses
+                .Where(r => r.Endpoint == "roster")
+                .Select(r => new { r.EntityId, r.FetchedAt })
+                .ToDictionary(r => r.EntityId, r => r.FetchedAt);
+
+            bool hasChanges = false;
+            // For each team, retrieve the roster seasons and then import the roster for each season
+            foreach (var triCode in triCodes)
             {
+                // Check if the roster seasons for this team have already been imported
                 var rosterSeasonsRaw = _db.RawApiResponses
-                    .FirstOrDefault(r => r.EntityId == $"roster-seasons-{team.TriCode}");
+                    .FirstOrDefault(r => r.EntityId == $"roster-seasons-{triCode}");
 
-                if (rosterSeasonsRaw == null) continue;
+                if (rosterSeasonsRaw == null)
+                {
+                    _logger.LogError("Error importing rosters for team {TriCode}: Raw roster seasons data has not been imported yet.", triCode);
+                    continue;
+                }
 
-                // Deserialize the JSON array of season IDs into a list of integers
-                var seasonIds = JsonSerializer.Deserialize<List<int>>(rosterSeasonsRaw.ResponseJson)!;
+                // Deserialize the JSON array of season IDs
+                if (!rosterSeasonsRaw.ResponseJson.TryDeserializeSafe<List<int>>(_logger, out var seasonIds, $"roster seasons for team {triCode}", out _) || seasonIds == null)
+                {
+                    continue;
+                }
 
-                bool hasChanges = false;
-
-                // Loop through each season for the team and fetch the roster data
+                // Loop through each season for the team and import the roster data                
                 foreach (var seasonId in seasonIds)
                 {
-                    var key = $"roster-{team.TriCode}-{seasonId}";
+                    var key = $"roster-{triCode}-{seasonId}";
 
-                    // Check if the roster for this team and season has already been imported
-                    var existing = _db.RawApiResponses.FirstOrDefault(r => r.EntityId == key);
-
-                    if (existing != null && existing.FetchedAt > DateTime.UtcNow.AddDays(-1))
+                    // Check if the roster for this team and season has already been imported within the last 24 hours
+                    existingRosterRecords.TryGetValue(key, out var fetchedAt);
+                    if (fetchedAt > DateTime.UtcNow.AddDays(-1))
                         continue;
 
-                    // Fetch the roster for this team and season from the NHL API and store it in the database
+                    // Fetch the roster for this team and season from the NHL API
                     try
                     {
-                        var json = await _nhlClient.GetTeamRosterAsync(team.TriCode, seasonId);
-                        ApiCallsMade++;
-                        Console.WriteLine("Api call made = " + ApiCallsMade);
+                        var json = await _nhlClient.GetTeamRosterAsync(triCode, seasonId);
 
-                        // Store the raw response in the database, either by updating an existing record or inserting a new one
-                        if (existing != null)
+                        var dbRecord = _db.RawApiResponses.Local.FirstOrDefault(r => r.EntityId == key)
+                                                    ?? _db.RawApiResponses.FirstOrDefault(r => r.EntityId == key);
+
+                        // Update the existing record if it exists, otherwise insert a new record
+                        if (dbRecord != null)
                         {
-                            if (existing.ResponseJson != json)
+                            if (dbRecord.ResponseJson != json)
                             {
-                                existing.ResponseJson = json;
-                                existing.FetchedAt = DateTime.UtcNow;
+                                dbRecord.ResponseJson = json;
+                                dbRecord.FetchedAt = DateTime.UtcNow;
                                 hasChanges = true;
                             }
                         }
@@ -255,17 +313,14 @@ namespace NHLApp.Application.Services
                     }
                     catch (Exception ex)
                     {
-                        Console.WriteLine($"Erreur roster {team.TriCode} {seasonId}: {ex.Message}");
+                        _logger.LogError(ex, "Failed to import endpoint {Endpoint} for entity {EntityId}.", "roster", $"{triCode}-{seasonId}");
                     }
+
                 }
-                
-                // Save tracking details if any additions/updates occurred during the loop for this team
-                if (hasChanges)
-                {
-                    await _db.SaveChangesAsync();
-                    SavesToDB++;
-                    Console.WriteLine($"Saves to DB = {SavesToDB} (Batch saved for team {team.TriCode})");
-                }
+            }
+            if (hasChanges)
+            {
+                await _db.SaveChangesAsync();
             }
         }
     }

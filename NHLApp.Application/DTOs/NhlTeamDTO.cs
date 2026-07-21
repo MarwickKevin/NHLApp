@@ -1,10 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-
-namespace NHLApp.Application.DTOs
+﻿namespace NHLApp.Application.DTOs
 {
     // Root object returned by the NHL API containing the "data" property
     public record NhlTeamRootDTO(
