@@ -160,9 +160,10 @@ namespace NHLApp.Application.Services
                 .ToDictionary(r => r.EntityId, r => r.FetchedAt);
 
             // Loop through each team and import the roster seasons data
-            bool hasChanges = false;
             foreach (var triCode in triCodes)
             {
+
+                bool hasChanges = false;
                 // Check if the roster seasons for this team have already been imported
                 var key = $"roster-seasons-{triCode}";
                 existingRecords.TryGetValue(key, out var fetchedAt);
@@ -209,11 +210,12 @@ namespace NHLApp.Application.Services
                 {
                     _logger.LogError(ex, "Failed to import endpoint {Endpoint} for entity {EntityId}.", "roster-seasons", triCode);
                 }
-            }
-            if (hasChanges)
-            {
-                await _db.SaveChangesAsync();
-            }
+                if (hasChanges)
+                {
+                    await _db.SaveChangesAsync();
+                    _db.ChangeTracker.Clear();
+                }
+            }            
         }
 
         /// <summary>
@@ -249,10 +251,11 @@ namespace NHLApp.Application.Services
                 .Select(r => new { r.EntityId, r.FetchedAt })
                 .ToDictionary(r => r.EntityId, r => r.FetchedAt);
 
-            bool hasChanges = false;
+          
             // For each team, retrieve the roster seasons and then import the roster for each season
             foreach (var triCode in triCodes)
             {
+                bool hasChanges = false;
                 // Check if the roster seasons for this team have already been imported
                 var rosterSeasonsRaw = _db.RawApiResponses
                     .FirstOrDefault(r => r.EntityId == $"roster-seasons-{triCode}");
@@ -317,11 +320,13 @@ namespace NHLApp.Application.Services
                     }
 
                 }
+                if (hasChanges)
+                {
+                    await _db.SaveChangesAsync();
+                    _db.ChangeTracker.Clear();
+                }
             }
-            if (hasChanges)
-            {
-                await _db.SaveChangesAsync();
-            }
+
         }
     }
 }

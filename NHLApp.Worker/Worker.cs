@@ -52,6 +52,7 @@ namespace NHLApp.Worker
 
             await transformService.TransformRostersAsync();
             _logger.LogInformation("Transformation des rosters terminée");
+
         }
     }
 }

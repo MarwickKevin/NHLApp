@@ -46,9 +46,10 @@ namespace NHLApp.Application.Services
             HashSet<int> existingSeasonIds = (await _db.Seasons.Select(s => s.SeasonId).ToListAsync()).ToHashSet();
 
             // Loop through the deserialized season IDs and add any new seasons to the database
-            bool hasChanges = false;
+           
             foreach (var seasonId in seasonIds)
             {
+                bool hasChanges = false;
                 try
                 {
                     if (existingSeasonIds.Contains(seasonId))
@@ -68,11 +69,12 @@ namespace NHLApp.Application.Services
                 {
                     _logger.LogError(ex, "Failed to transform season ID {SeasonId}", seasonId);
                 }
-            }
-            if (hasChanges)
-            {
-                await _db.SaveChangesAsync();
-            }
+                if (hasChanges)
+                {
+                    await _db.SaveChangesAsync();
+                    _db.ChangeTracker.Clear();
+                }
+            }           
         }
 
         /// <summary>
@@ -124,9 +126,10 @@ namespace NHLApp.Application.Services
             HashSet<(int TeamId, int SeasonId)> knownTeamSeasons = (await _db.Teams.Select(t => new ValueTuple<int, int>(t.TeamId, t.SeasonId)).ToListAsync()).ToHashSet();
 
             // Loop through each raw team payload and transform it into structured Team and Franchise entities
-            bool hasChanges = false;
+           
             foreach (var raw in teamRaws)
             {
+                bool hasChanges = false;
                 try
                 {
                     if (string.IsNullOrWhiteSpace(raw.ResponseJson))
@@ -206,11 +209,12 @@ namespace NHLApp.Application.Services
                 {
                     _logger.LogError(ex, "Failed to transform team payload for EntityId {EntityId}", raw.EntityId);
                 }
-            }
-            if (hasChanges)
-            {
-                await _db.SaveChangesAsync();
-            }
+                if (hasChanges)
+                {
+                    await _db.SaveChangesAsync();
+                    _db.ChangeTracker.Clear();
+                }
+            }            
         }
 
         /// <summary>
@@ -226,9 +230,10 @@ namespace NHLApp.Application.Services
             HashSet<int> knownPlayerIds = (await _db.Players.Select(p => p.PlayerId).ToListAsync()).ToHashSet();
 
             // Loop through each raw roster payload     
-            bool hasChanges = false;
+            
             foreach (var raw in rosterRaws)
             {
+                bool hasChanges = false;
                 try
                 {
                     if (string.IsNullOrWhiteSpace(raw.ResponseJson))
@@ -275,11 +280,13 @@ namespace NHLApp.Application.Services
                 {
                     _logger.LogError(ex, "Failed to transform player roster payload for EntityId {EntityId}", raw.EntityId);
                 }
+                if (hasChanges)
+                {
+                    await _db.SaveChangesAsync();
+                    _db.ChangeTracker.Clear();
+                }
             }
-            if (hasChanges)
-            {
-                await _db.SaveChangesAsync();
-            }
+            
         }
 
         /// <summary>
@@ -301,12 +308,12 @@ namespace NHLApp.Application.Services
                 .AsEnumerable() // Pull evaluation into memory to safely use GroupBy/ValueTuple
                 .GroupBy(t => new ValueTuple<string, int>(t.TriCode, t.SeasonId))
                 .ToDictionary(g => g.Key, g => g.First().TeamId);
-
-            bool hasChanges = false;
+                       
             foreach (RawApiResponse raw in rosterRaws)
             {
+                bool hasChanges = false;
                 try
-                {
+                {                    
                     // Skip if the EntityId is not in the expected format ("roster-TEAMCODE-SEASONID")
                     string[] keyParts = raw.EntityId.Split('-');
                     if (keyParts.Length < 3)
@@ -360,11 +367,13 @@ namespace NHLApp.Application.Services
                 {
                     _logger.LogError(ex, "Failed to transform team roster relationship for EntityId {EntityId}", raw.EntityId);
                 }
+                if (hasChanges)
+                {
+                    await _db.SaveChangesAsync();
+                    _db.ChangeTracker.Clear();
+                }
             }
-            if (hasChanges)
-            {
-                await _db.SaveChangesAsync();
-            }
+           
         }
     }
 }
