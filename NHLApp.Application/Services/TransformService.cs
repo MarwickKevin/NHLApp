@@ -285,8 +285,7 @@ namespace NHLApp.Application.Services
                     await _db.SaveChangesAsync();
                     _db.ChangeTracker.Clear();
                 }
-            }
-            
+            }            
         }
 
         /// <summary>
@@ -372,8 +371,7 @@ namespace NHLApp.Application.Services
                     await _db.SaveChangesAsync();
                     _db.ChangeTracker.Clear();
                 }
-            }
-           
+            }           
         }
     }
 }
