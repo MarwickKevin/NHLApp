@@ -1,4 +1,5 @@
-﻿using Microsoft.Extensions.Logging;
+﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using NHLApp.Domain.Entities;
 using System;
 using System.Collections.Generic;
@@ -19,22 +20,20 @@ namespace NHLApp.Infrastructure.Data
             _logger = logger;
         }
 
-        public async Task SaveOrUpdateAsync(string endpoint, string entityId, string json, bool trackChanges = false)
+        public async Task SaveOrUpdateAsync(string endpoint, string entityId, string json)
         {
             try
             {
-                var dbRecord = trackChanges
-                  ? (_db.RawApiResponses.Local.FirstOrDefault(r => r.EntityId == entityId) ?? _db.RawApiResponses.FirstOrDefault(r => r.EntityId == entityId))
-                  : _db.RawApiResponses.FirstOrDefault(r => r.EntityId == entityId);
+                // Check if the record already exists in the database, considering whether to track changes or not
+                var dbRecord = await _db.RawApiResponses.FirstOrDefaultAsync(r => r.EntityId == entityId);
 
+                // If the record exists, update it; otherwise, create a new record
                 if (dbRecord != null)
-                {
-                    if (dbRecord.ResponseJson != json)
-                    {
+                {                    
                         dbRecord.ResponseJson = json;
                         dbRecord.FetchedAt = DateTime.UtcNow;
-                        await _db.SaveChangesAsync();
-                    }
+
+                        await _db.SaveChangesAsync();                    
                 }
                 else
                 {

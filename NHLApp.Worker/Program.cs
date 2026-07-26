@@ -21,6 +21,8 @@ builder.Services.AddScoped<ImportService>();
 
 builder.Services.AddScoped<TransformService>();
 
+builder.Services.AddScoped<RawDataStore>();
+
 var host = builder.Build();
 
 // Automatically apply migrations and create the DB if it doesn't exist

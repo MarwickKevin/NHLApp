@@ -9,11 +9,10 @@ using System.Net;
 
 namespace NHLApp.Application.Services
 {
-    // TODO: Add retry logic for API calls to handle transient failures and improve reliability    
-
-    // TODO Make error handling consistent across all methods, including logging and exception throwing.
-
+    // TODO: Add retry logic for API calls to handle transient failures and improve reliability
+    // TODO: Make error handling consistent across all methods, including logging and exception throwing.
     // TODO: Use hash comparison for JSON content to determine if an update is necessary, instead of relying solely on timestamps
+    // TODO: Improve commenting and documentation for each method, including parameter descriptions and return values.
 
     public class ImportService
     {
@@ -22,16 +21,20 @@ namespace NHLApp.Application.Services
         private readonly ILogger<ImportService> _logger;
         private readonly RawDataStore _rawDataStore;
 
+        // Constants for API throttling to avoid hitting the NHL API too quickly
+        private const int ApiThrottlingDelay = 150;
+
+        private int totalApiCalls = 0;
+
         public ImportService(INHLApiClient nhlClient, NHLAppDbContext db, ILogger<ImportService> logger, RawDataStore rawDataStore)
         {
             _nhlClient = nhlClient;
             _db = db;
-            this._logger = logger;
+            _logger = logger;
             _rawDataStore = rawDataStore;
-        }
+        }        
 
-        // Constants for API throttling to avoid hitting the NHL API too quickly
-        private const int ApiThrottlingDelay = 150;
+        #region Import Methods
 
         /// <summary>
         /// Imports the latest seasons from the NHL API and stores them in the database.
@@ -68,7 +71,7 @@ namespace NHLApp.Application.Services
             if (!triCodes.Any())
                 return;
 
-            await ProcessImportAsync(
+            await ProcessCollectionImportAsync(
                 items: triCodes,
                 endpoint: "roster-seasons",
                 entityIdSelector: triCode => triCode,
@@ -98,13 +101,95 @@ namespace NHLApp.Application.Services
                 }
 
                 // Process each season for the team, fetching the roster data and storing it in the database
-                await ProcessImportAsync(
+                await ProcessCollectionImportAsync(
                     items: seasonIds,
                     endpoint: "roster",
                     entityIdSelector: seasonId => $"{triCode}-{seasonId}",
                     fetchApiAsync: seasonId => _nhlClient.GetTeamRosterAsync(triCode, seasonId));
             }
         }
+        #endregion
+
+        #region Import Processing Engines
+
+        /// <summary>
+        /// Processes a single item, fetching data from the NHL API and storing it in the database if it hasn't been fetched recently.
+        /// </summary>
+        /// <param name="endpoint"></param>
+        /// <param name="entityId"></param>
+        /// <param name="fetchApiAsync"></param>
+        /// <returns></returns>
+        private async Task ProcessImportAsync(string endpoint, string entityId, Func<Task<string>> fetchApiAsync)
+        {
+            var key = $"{endpoint}-{entityId}";
+            var existing = _db.RawApiResponses
+                .FirstOrDefault(r => r.EntityId == key);
+
+            if (IsFresh(existing?.FetchedAt))
+                return;
+
+            try
+            {
+                var json = await fetchApiAsync();
+                await _rawDataStore.SaveOrUpdateAsync(endpoint, key, json);
+
+                totalApiCalls++;
+                Console.WriteLine("TOTAL API CALLS MADE SINCE STARTING APP: " + totalApiCalls, ConsoleColor.Magenta);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to import endpoint {Endpoint} for entity {EntityId}.", endpoint, entityId);
+            }
+        }
+
+        /// <summary>
+        /// Processes a collection of items, fetching data from the NHL API for each item and storing it in the database if it hasn't been fetched recently.
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="items"></param>
+        /// <param name="endpoint"></param>
+        /// <param name="entityIdSelector"></param>
+        /// <param name="fetchApiAsync"></param>
+        /// <returns></returns>
+        private async Task ProcessCollectionImportAsync<T>(IEnumerable<T> items, string endpoint, Func<T, string> entityIdSelector, Func<T, Task<string>> fetchApiAsync)
+        {
+            var existingRecords = _db.RawApiResponses
+                .Where(r => r.Endpoint == endpoint)
+                .Select(r => new { r.EntityId, r.FetchedAt })
+                .ToDictionary(r => r.EntityId, r => r.FetchedAt);
+
+            foreach (var item in items)
+            {
+                var entityId = entityIdSelector(item);
+                var key = $"{endpoint}-{entityId}";
+
+                existingRecords.TryGetValue(key, out var fetchedAt);
+
+                if (IsFresh(fetchedAt))
+                    continue;
+
+                try
+                {                    
+                    var json = await fetchApiAsync(item);
+                     
+                    await _rawDataStore.SaveOrUpdateAsync(endpoint, key, json);
+
+                    await Task.Delay(ApiThrottlingDelay);
+
+                    totalApiCalls++;
+                    Console.ForegroundColor = ConsoleColor.Magenta;
+                    Console.WriteLine("TOTAL API CALLS SINCE APP STARTED: "+totalApiCalls);
+                    Console.ResetColor();
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to import endpoint {Endpoint} for entity {EntityId}.", endpoint, entityId);
+                }
+            }
+        }
+        #endregion
+
+        #region Helper Methods
 
         /// <summary>
         /// Checks if the data fetched at the specified time is still fresh (i.e., fetched within the last 24 hours).
@@ -140,81 +225,6 @@ namespace NHLApp.Application.Services
                 .Distinct()
                 .ToList();
         }
-
-        /// <summary>
-        /// Processes a single item, fetching data from the NHL API and storing it in the database if it hasn't been fetched recently.
-        /// </summary>
-        /// <param name="endpoint"></param>
-        /// <param name="entityId"></param>
-        /// <param name="fetchApiAsync"></param>
-        /// <returns></returns>
-        private async Task ProcessImportAsync(
-            string endpoint,
-            string entityId,
-            Func<Task<string>> fetchApiAsync)
-        {
-            var key = $"{endpoint}-{entityId}";
-
-            var existing = _db.RawApiResponses
-                .FirstOrDefault(r => r.Endpoint == endpoint && r.EntityId == entityId);
-
-            if (IsFresh(existing?.FetchedAt))
-                return;
-
-            try
-            {
-                var json = await fetchApiAsync();
-                await _rawDataStore.SaveOrUpdateAsync(endpoint, key, json);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to import endpoint {Endpoint} for entity {EntityId}.", endpoint, entityId);
-            }
-        }
-
-        /// <summary>
-        /// Processes a collection of items, fetching data from the NHL API for each item and storing it in the database if it hasn't been fetched recently.
-        /// </summary>
-        /// <typeparam name="T"></typeparam>
-        /// <param name="items"></param>
-        /// <param name="endpoint"></param>
-        /// <param name="entityIdSelector"></param>
-        /// <param name="fetchApiAsync"></param>
-        /// <returns></returns>
-        private async Task ProcessImportAsync<T>(
-            IEnumerable<T> items,
-            string endpoint,
-            Func<T, string> entityIdSelector,
-            Func<T, Task<string>> fetchApiAsync)
-        {
-            var existingRecords = _db.RawApiResponses
-                .Where(r => r.Endpoint == endpoint)
-                .Select(r => new { r.EntityId, r.FetchedAt })
-                .ToDictionary(r => r.EntityId, r => r.FetchedAt);
-
-            foreach (var item in items)
-            {
-                var entityId = entityIdSelector(item);
-                var key = $"{endpoint}-{entityId}";
-
-                existingRecords.TryGetValue(key, out var fetchedAt);
-
-                if (IsFresh(fetchedAt))
-                    continue;
-
-                try
-                {
-                    var json = await fetchApiAsync(item);
-
-                    await _rawDataStore.SaveOrUpdateAsync(endpoint, key, json);
-
-                    await Task.Delay(ApiThrottlingDelay);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Failed to import endpoint {Endpoint} for entity {EntityId}.", endpoint, entityId);
-                }
-            }
-        }
+        #endregion
     }
 }

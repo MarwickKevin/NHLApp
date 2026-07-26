@@ -18,5 +18,21 @@ namespace NHLApp.Domain.Entities
         public string? BirthCountry { get; set; }
         public int? HeightInCentimeters { get; set; }
         public int? WeightInKilograms { get; set; }
+
+        public string? Headshot { get; set; }
+        public int? SweaterNumber { get; set; }
+        public int? HeightInInches { get; set; }
+        public int? WeightInPounds { get; set; }
+        public string? BirthStateProvince { get; set; }
+
+
+
+        //[property: JsonPropertyName("headshot")]
+        //string? Headshot,
+        //[property: JsonPropertyName("sweaterNumber")] int? SweaterNumber,
+        //[property: JsonPropertyName("heightInInches")] int? HeightInInches,
+        //[property: JsonPropertyName("weightInPounds")] int? WeightInPounds,
+        //[property: JsonPropertyName("birthCountry")] string? BirthCountry,
+        //[property: JsonPropertyName("birthStateProvince")] NhlLocalizedTextDTO? BirthStateProvince
     }
 }
