@@ -6,6 +6,7 @@ using NHLApp.Application.DTOs;
 using Microsoft.Extensions.Logging;
 using NHLApp.Application.Extensions;
 using System.Net;
+using NHLApp.Application.Contexts;
 
 namespace NHLApp.Application.Services
 {
@@ -107,6 +108,12 @@ namespace NHLApp.Application.Services
                     entityIdSelector: seasonId => $"{triCode}-{seasonId}",
                     fetchApiAsync: seasonId => _nhlClient.GetTeamRosterAsync(triCode, seasonId));
             }
+        }
+
+        public async Task ImportPlayerLandings()
+        {
+            // Import playerIds from context
+            // Go through each playerId and fetch the landing page data from the NHL API
         }
         #endregion
 

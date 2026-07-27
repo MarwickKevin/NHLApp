@@ -1,3 +1,4 @@
+using NHLApp.Application.Contexts;
 using NHLApp.Application.Services;
 using NHLApp.Infrastructure.Data;
 
@@ -7,11 +8,13 @@ namespace NHLApp.Worker
     {
         private readonly ILogger<Worker> _logger;
         private readonly IServiceProvider _serviceProvider;
+        public WorkerContext _context { get; private set; }
 
-        public Worker(ILogger<Worker> logger, IServiceProvider serviceProvider)
+        public Worker(ILogger<Worker> logger, IServiceProvider serviceProvider, WorkerContext context)
         {
             _logger = logger;
             _serviceProvider = serviceProvider;
+            _context = context;
         }
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)

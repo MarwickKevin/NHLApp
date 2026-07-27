@@ -4,6 +4,8 @@ using NHLApp.Worker;
 using NHLApp.Application.Services;
 using NHLApp.Infrastructure.Data;
 using NHLApp.Infrastructure.NHL;
+using System.Xml.Serialization;
+using NHLApp.Application.Contexts;
 
 var builder = Host.CreateApplicationBuilder(args);
 
@@ -22,6 +24,8 @@ builder.Services.AddScoped<ImportService>();
 builder.Services.AddScoped<TransformService>();
 
 builder.Services.AddScoped<RawDataStore>();
+
+builder.Services.AddScoped<WorkerContext>();
 
 var host = builder.Build();
 
