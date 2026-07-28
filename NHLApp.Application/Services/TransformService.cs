@@ -1,5 +1,6 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using NHLApp.Application.Contexts;
 using NHLApp.Application.DTOs;
 using NHLApp.Application.Extensions;
 using NHLApp.Domain.Entities;
@@ -10,6 +11,9 @@ namespace NHLApp.Application.Services
 {
     // TODO: Implement an IsProcessed flag on RawApiResponses to skip already-transformed staging records.
     // TODO: Make error handling consistent across all methods, including logging and exception throwing.
+    // TODO: Improve commenting and documentation for each method, including parameter descriptions and return values.
+    // TODO: Implement an Upsert mechanism (or update logic) to refresh existing entities if source JSON data or schema columns change.
+    // TODO: Add counters of success (x/y) and show in console
 
     public class TransformService
     {
@@ -22,358 +26,519 @@ namespace NHLApp.Application.Services
             _logger = logger;
         }
 
+        #region RAW API RESPONSE TRANSFORMATION
+
         /// <summary>
-        /// Transforms raw season JSON payloads into structured Season entities in the database.
+        /// Transforms raw season JSON payloads into structured Season entities in the database, extracting start and end years from the season ID.
         /// </summary>
         /// <returns></returns>
-        public async Task TransformSeasonsAsync()
+        public async Task TransformSeasonsAsync(WorkerContext context)
         {
-            // Fetch the raw season JSON payload
-            var raw = await _db.RawApiResponses.FirstOrDefaultAsync(r => r.Endpoint == "season");
-            if (raw == null || string.IsNullOrWhiteSpace(raw.ResponseJson))
-            {
-                _logger.LogError("TransformSeasons aborted: No raw season response found in staging.");
-                return;
-            }
-
-            // Deserialize the JSON array of season IDs into a list of integers
-            if (!raw.ResponseJson.TryDeserializeSafe<List<int>>(_logger, out var seasonIds, "raw season payload", out _) || seasonIds == null)
-            {
-                return;
-            }
-
-            // Load existing season IDs into a HashSet for efficient lookups to avoid duplicates
-            HashSet<int> existingSeasonIds = (await _db.Seasons.Select(s => s.SeasonId).ToListAsync()).ToHashSet();
-
-            // Loop through the deserialized season IDs and add any new seasons to the database
-           
-            foreach (var seasonId in seasonIds)
-            {
-                bool hasChanges = false;
-                try
+            await ProcessGenericCollectionAsync<List<int>, int, int, Season>(
+                context,
+                endpoint: "season",
+                operationName: "TransformSeasons",
+                itemsSelector: seasonIds => seasonIds,
+                keySelector: seasonId => seasonId,
+                mapEntity: seasonId =>
                 {
-                    if (existingSeasonIds.Contains(seasonId))
-                        continue;
-
-                    _db.Seasons.Add(new Season
-                    {
-                        SeasonId = seasonId,
-                        StartYear = seasonId / 10000,
-                        EndYear = seasonId % 10000
-                    });
-
-                    existingSeasonIds.Add(seasonId);
-                    hasChanges = true;
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Failed to transform season ID {SeasonId}", seasonId);
-                }
-                if (hasChanges)
-                {
-                    await _db.SaveChangesAsync();
-                    _db.ChangeTracker.Clear();
-                }
-            }           
+                    var (startYear, endYear) = ParseSeasonYears(seasonId);
+                    return new Season { SeasonId = seasonId, StartYear = startYear, EndYear = endYear };
+                },
+                dbSet: _db.Seasons);
         }
 
         /// <summary>
-        /// Transforms raw team JSON payloads into structured Team and Franchise entities in the database.
+        /// Transforms raw team JSON payloads into structured Franchise and Team entities in the database, linking teams to their franchises and seasons.
         /// </summary>
-        /// <returns></returns>
-        public async Task TransformTeamsAsync()
+        /// <returns></returns>        
+        public async Task TransformTeamsAsync(WorkerContext context)
         {
-            // Fetch all raw team and roster-seasons JSON payloads
-            var teamRaws = await _db.RawApiResponses.Where(r => r.Endpoint == "team").ToListAsync();
-            var rosterSeasonsRaws = await _db.RawApiResponses.Where(r => r.Endpoint == "roster-seasons").ToListAsync();
+            // Build the mapping of team tri-codes to their corresponding list of season IDs using a helper
+            var tricodeToSeasons = await BuildTricodeToSeasonsMappingAsync(context);
 
-            // Create a mapping of team tri-codes to their corresponding list of season IDs from the roster-seasons endpoint
-            var tricodeToSeasons = new Dictionary<string, List<int>>(StringComparer.OrdinalIgnoreCase);
+            // Load existing caches in memory
+            HashSet<int> knownFranchiseIds = await GetKnownKeysAsync<Franchise, int>(f => f.FranchiseId);
+            HashSet<int> knownSeasonIds = await GetKnownKeysAsync<Season, int>(s => s.SeasonId);
+            HashSet<(int TeamId, int SeasonId)> knownTeamSeasons = await GetKnownKeysAsync<Team, (int TeamId, int SeasonId)>(t => ValueTuple.Create(t.TeamId, t.SeasonId));
 
-            // Loop through each roster-seasons raw payload to build the mapping
-            foreach (var rRaw in rosterSeasonsRaws)
-            {
-                // Extract the tri-code from the EntityId (expected format: "roster-seasons-TRICODE")
-                var parts = rRaw.EntityId.Split('-');
-                if (parts.Length < 3)
+            // Process each team item from the raw API responses, adding new franchises, seasons, and team-season relationships as needed
+            await ProcessEndpointCollectionAsync<NhlTeamRootDTO, NhlTeamItemDTO>(
+                context,
+                endpoint: "team",
+                operationName: "TransformTeams",
+                itemsSelector: root => root.Data ?? Enumerable.Empty<NhlTeamItemDTO>(),
+                processItemAsync: teamDto =>
                 {
-                    _logger.LogError("TransformTeams aborted: Invalid EntityId format for roster-seasons response: '{EntityId}'.", rRaw.EntityId);
-                    continue;
-                }
-                string triCode = parts.Last();
+                    bool itemChanges = false;
 
-                if (string.IsNullOrWhiteSpace(rRaw.ResponseJson))
-                {
-                    _logger.LogError("TransformTeams skipping: ResponseJson is null or whitespace for roster-seasons EntityId '{EntityId}'.", rRaw.EntityId);
-                    continue;
-                }
-
-                // Deserialize the JSON array of integers
-                if (!rRaw.ResponseJson.TryDeserializeSafe<List<int>>(_logger, out var seasonsList, $"roster-seasons for {rRaw.EntityId}", out _))
-                {
-                    continue;
-                }
-
-                if (seasonsList != null)
-                {
-                    tricodeToSeasons[triCode] = seasonsList;
-                }
-            }
-
-            // Load existing structures into memory once to prevent duplicates
-            HashSet<int> knownSeasonIds = (await _db.Seasons.Select(s => s.SeasonId).ToListAsync()).ToHashSet();
-            HashSet<int> knownFranchiseIds = (await _db.Franchises.Select(f => f.FranchiseId).ToListAsync()).ToHashSet();
-            HashSet<(int TeamId, int SeasonId)> knownTeamSeasons = (await _db.Teams.Select(t => new ValueTuple<int, int>(t.TeamId, t.SeasonId)).ToListAsync()).ToHashSet();
-
-            // Loop through each raw team payload and transform it into structured Team and Franchise entities
-           
-            foreach (var raw in teamRaws)
-            {
-                bool hasChanges = false;
-                try
-                {
-                    if (string.IsNullOrWhiteSpace(raw.ResponseJson))
+                    // Add new franchises if they don't exist
+                    if (teamDto.FranchiseId.HasValue && knownFranchiseIds.Add(teamDto.FranchiseId.Value))
                     {
-                        _logger.LogError("TransformTeams skipping: ResponseJson is null or whitespace for team EntityId '{EntityId}'.", raw.EntityId);
-                        continue;
+                        _db.Franchises.Add(new Franchise { FranchiseId = teamDto.FranchiseId.Value, Name = teamDto.FullName });
+                        itemChanges = true;
                     }
 
-                    // Deserialize the JSON payload into a structured DTO object
-                    if (!raw.ResponseJson.TryDeserializeSafe<NhlTeamRootDTO>(_logger, out var root, $"team payload {raw.EntityId}", out _) || root == null)
+                    // Find all historical seasons for this team using its TriCode from the roster-seasons mapping
+                    if (tricodeToSeasons.TryGetValue(teamDto.TriCode, out var validSeasons))
                     {
-                        continue;
-                    }
-
-                    foreach (NhlTeamItemDTO item in root.Data ?? Enumerable.Empty<NhlTeamItemDTO>())
-                    {
-                        // Add new franchises if they don't exist
-                        if (item.FranchiseId.HasValue && !knownFranchiseIds.Contains(item.FranchiseId.Value))
+                        foreach (int seasonId in validSeasons)
                         {
-                            _db.Franchises.Add(new Franchise
+                            // Add new seasons if they don't exist
+                            if (!knownSeasonIds.Contains(seasonId))
                             {
-                                FranchiseId = item.FranchiseId.Value,
-                                Name = item.FullName
-                            });
-                            knownFranchiseIds.Add(item.FranchiseId.Value);
-                            hasChanges = true;
-                        }
-
-                        // Find all historical seasons for this team using its TriCode from the roster-seasons mapping
-                        if (tricodeToSeasons.TryGetValue(item.TriCode, out var validSeasons))
-                        {
-                            foreach (int seasonId in validSeasons)
-                            {
-                                // Add new seasons if they don't exist
-                                if (!knownSeasonIds.Contains(seasonId))
-                                {
-                                    int startYear = 0;
-                                    int endYear = 0;
-                                    string seasonStr = seasonId.ToString();
-                                    if (seasonStr.Length == 8)
-                                    {
-                                        int.TryParse(seasonStr.Substring(0, 4), out startYear);
-                                        int.TryParse(seasonStr.Substring(4, 4), out endYear);
-                                    }
-
-                                    _db.Seasons.Add(new Season
-                                    {
-                                        SeasonId = seasonId,
-                                        StartYear = startYear,
-                                        EndYear = endYear
-                                    });
-                                    knownSeasonIds.Add(seasonId);
-                                    hasChanges = true;
-                                }
-
-                                // Add new team-season relationships if they don't exist
-                                if (knownTeamSeasons.Contains((item.Id, seasonId)))
-                                    continue;
-
-                                _db.Teams.Add(new Team
-                                {
-                                    TeamId = item.Id,
-                                    SeasonId = seasonId,
-                                    FranchiseId = item.FranchiseId,
-                                    FullName = item.FullName,
-                                    TriCode = item.TriCode,
-                                    RawTriCode = item.RawTricode,
-                                    LeagueId = item.LeagueId
-                                });
-                                knownTeamSeasons.Add((item.Id, seasonId));
-                                hasChanges = true;
+                                var (startYear, endYear) = ParseSeasonYears(seasonId);
+                                _db.Seasons.Add(new Season { SeasonId = seasonId, StartYear = startYear, EndYear = endYear });
+                                knownSeasonIds.Add(seasonId);
+                                itemChanges = true;
                             }
+
+                            // Add new team-season relationships if they don't exist
+                            if (knownTeamSeasons.Contains((teamDto.Id, seasonId)))
+                                continue;
+
+                            _db.Teams.Add(new Team
+                            {
+                                TeamId = teamDto.Id,
+                                SeasonId = seasonId,
+                                FranchiseId = teamDto.FranchiseId,
+                                FullName = teamDto.FullName,
+                                TriCode = teamDto.TriCode,
+                                RawTriCode = teamDto.RawTricode,
+                                LeagueId = teamDto.LeagueId
+                            });
+                            knownTeamSeasons.Add((teamDto.Id, seasonId));
+                            itemChanges = true;
                         }
                     }
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Failed to transform team payload for EntityId {EntityId}", raw.EntityId);
-                }
-                if (hasChanges)
-                {
-                    await _db.SaveChangesAsync();
-                    _db.ChangeTracker.Clear();
-                }
-            }            
+                    return Task.FromResult(itemChanges);
+                });
         }
 
         /// <summary>
-        /// Transforms raw roster JSON payloads into structured Player entities in the database.
+        /// Transforms raw player JSON payloads into structured Player entities in the database, extracting relevant player information.
         /// </summary>
         /// <returns></returns>
-        public async Task TransformPlayersAsync()
+        public async Task TransformPlayersAsync(WorkerContext context)
         {
-            // Fetch all raw roster JSON payloads from staging
-            var rosterRaws = await _db.RawApiResponses.Where(r => r.Endpoint == "roster").ToListAsync();
-
-            // Load existing tracking sets to avoid duplicates and round-trips
-            HashSet<int> knownPlayerIds = (await _db.Players.Select(p => p.PlayerId).ToListAsync()).ToHashSet();
-
-            // Loop through each raw roster payload     
-            
-            foreach (var raw in rosterRaws)
-            {
-                bool hasChanges = false;
-                try
+            await ProcessGenericCollectionAsync<NhlRosterRootDTO, NhlPlayerDTO, int, Player>(
+                context,
+                endpoint: "roster",
+                operationName: "TransformPlayers",
+                itemsSelector: root => (root.Forwards ?? Enumerable.Empty<NhlPlayerDTO>())
+                    .Concat(root.Defensemen ?? Enumerable.Empty<NhlPlayerDTO>())
+                    .Concat(root.Goalies ?? Enumerable.Empty<NhlPlayerDTO>()),
+                keySelector: playerDto => playerDto.Id,
+                mapEntity: playerDto => new Player
                 {
-                    if (string.IsNullOrWhiteSpace(raw.ResponseJson))
-                    {
-                        _logger.LogError("TransformPlayers skipping: ResponseJson is null or whitespace for roster EntityId '{EntityId}'.", raw.EntityId);
-                        continue;
-                    }
-
-                    // Automatically deserialize the entire nested structure using the DTO                
-                    if (!raw.ResponseJson.TryDeserializeSafe<NhlRosterRootDTO>(_logger, out var rosterData, $"roster payload {raw.EntityId}", out _) || rosterData == null)
-                    {
-                        continue;
-                    }
-
-                    // Flatten the three positional lists into a single collection
-                    IEnumerable<NhlPlayerDTO> allPlayers = (rosterData.Forwards ?? Enumerable.Empty<NhlPlayerDTO>())
-                         .Concat(rosterData.Defensemen ?? Enumerable.Empty<NhlPlayerDTO>())
-                         .Concat(rosterData.Goalies ?? Enumerable.Empty<NhlPlayerDTO>());
-
-                    // Loop through each player DTO and add new players to the Players table if they don't already exist
-                    foreach (NhlPlayerDTO playerDto in allPlayers)
-                    {
-                        if (knownPlayerIds.Contains(playerDto.Id))
-                            continue;
-
-                        _db.Players.Add(new Player
-                        {
-                            PlayerId = playerDto.Id,
-                            FirstName = playerDto.FirstName.Default,
-                            LastName = playerDto.LastName.Default,
-                            Position = playerDto.PositionCode,
-                            ShootsCatches = playerDto.ShootsCatches ?? string.Empty,
-                            HeightInCentimeters = playerDto.HeightInCentimeters,
-                            WeightInKilograms = playerDto.WeightInKilograms,
-                            BirthDate = playerDto.BirthDate != null ? DateOnly.Parse(playerDto.BirthDate) : null,
-                            BirthCity = playerDto.BirthCity?.Default,
-                            BirthCountry = playerDto.BirthCountry
-                        });
-                        knownPlayerIds.Add(playerDto.Id);
-                        hasChanges = true;
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Failed to transform player roster payload for EntityId {EntityId}", raw.EntityId);
-                }
-                if (hasChanges)
-                {
-                    await _db.SaveChangesAsync();
-                    _db.ChangeTracker.Clear();
-                }
-            }
-            
+                    PlayerId = playerDto.Id,
+                    FirstName = playerDto.FirstName?.Default ?? string.Empty,
+                    LastName = playerDto.LastName?.Default ?? string.Empty,
+                    Position = playerDto.PositionCode,
+                    ShootsCatches = playerDto.ShootsCatches ?? string.Empty,
+                    HeightInCentimeters = playerDto.HeightInCentimeters,
+                    WeightInKilograms = playerDto.WeightInKilograms,
+                    BirthDate = playerDto.BirthDate != null ? DateOnly.Parse(playerDto.BirthDate) : null,
+                    BirthCity = playerDto.BirthCity?.Default,
+                    BirthCountry = playerDto.BirthCountry,
+                    SweaterNumber = playerDto.SweaterNumber,
+                    HeightInInches = playerDto.HeightInInches,
+                    WeightInPounds = playerDto.WeightInPounds,
+                    Headshot = playerDto.Headshot,
+                    BirthStateProvince = playerDto.BirthStateProvince?.Default
+                },
+                dbSet: _db.Players);
         }
 
         /// <summary>
-        /// Transforms raw roster JSON payloads into structured TeamRoster relationship entities in the database.
+        /// Transforms raw roster JSON payloads into structured TeamRosters relationships in the database, linking players to teams for specific seasons.
         /// </summary>
         /// <returns></returns>
-        public async Task TransformRostersAsync()
+        public async Task TransformRostersAsync(WorkerContext context)
         {
-            // Fetch all raw seasonal roster payloads from staging
-            var rosterRaws = await _db.RawApiResponses.Where(r => r.Endpoint == "roster").ToListAsync();
-
-            // Load existing TeamRoster relationships into memory to avoid duplicates and round-trips
-            HashSet<(int TeamId, int PlayerId, int SeasonId)> existingRosters = (await _db.TeamRosters.Select(tr => ValueTuple.Create(tr.TeamId, tr.PlayerId, tr.SeasonId)).ToListAsync()).ToHashSet();
-            HashSet<int> validPlayerIds = (await _db.Players.Select(p => p.PlayerId).ToListAsync()).ToHashSet();
-            HashSet<int> validSeasonIds = (await _db.Seasons.Select(s => s.SeasonId).ToListAsync()).ToHashSet();
+            // Load existing TeamRoster relationships into memory to avoid duplicates and round-trips            
+            HashSet<(int TeamId, int PlayerId, int SeasonId)> existingRosters = await GetKnownKeysAsync<TeamRosters, (int TeamId, int PlayerId, int SeasonId)>(tr => ValueTuple.Create(tr.TeamId, tr.PlayerId, tr.SeasonId));
+            HashSet<int> validPlayerIds = await GetKnownKeysAsync<Player, int>(p => p.PlayerId);
+            HashSet<int> validSeasonIds = await GetKnownKeysAsync<Season, int>(s => s.SeasonId);
 
             // Create a lookup dictionary for team tri-codes and season IDs to their corresponding TeamId for quick access
             Dictionary<(string TriCode, int SeasonId), int> teamLookup = _db.Teams
                 .AsEnumerable() // Pull evaluation into memory to safely use GroupBy/ValueTuple
                 .GroupBy(t => new ValueTuple<string, int>(t.TriCode, t.SeasonId))
                 .ToDictionary(g => g.Key, g => g.First().TeamId);
-                       
-            foreach (RawApiResponse raw in rosterRaws)
+
+            var rawRecords = await _db.RawApiResponses.Where(r => r.Endpoint == "roster").ToListAsync();
+
+            
+            await ProcessBatchAsync(context, rawRecords, "TransformRosters", async raw =>
+            {
+                // Skip if the EntityId is not in the expected format ("roster-TEAMCODE-SEASONID")
+                string[] keyParts = raw.EntityId.Split('-');
+                if (keyParts.Length < 3)
+                {
+                    context.TotalTransformErrors++;
+                    _logger.LogErrorWithColor(
+                        "TransformRosters skipping: Invalid EntityId format for team roster response: {EntityId}. Total transform errors: {TotalErrors}", 
+                        ConsoleColor.Red, 
+                        raw.EntityId, 
+                        context.TotalTransformErrors);
+                    return false;
+                }
+
+                string teamTriCode = keyParts[keyParts.Length - 2].Trim().ToUpper();
+                if (!int.TryParse(keyParts[keyParts.Length - 1], out int seasonId))
+                {
+                    context.TotalTransformErrors++;
+                    _logger.LogErrorWithColor(
+                        "TransformRosters skipping: Failed to parse season ID from EntityId format: {EntityId}. Total transform errors: {TotalErrors}", 
+                        ConsoleColor.Red, 
+                        raw.EntityId, 
+                        context.TotalTransformErrors);
+                    return false;
+                }
+
+                // Ensure the team and season exist in our database core tables before processing the roster
+                if (!teamLookup.TryGetValue((teamTriCode, seasonId), out int teamId) || !validSeasonIds.Contains(seasonId))
+                {
+                    context.TotalTransformErrors++;
+                    _logger.LogErrorWithColor(
+                        "TransformRosters skipping: Team or season not found for EntityId: {EntityId}. Total transform errors: {TotalErrors}", 
+                        ConsoleColor.Red, 
+                        raw.EntityId, 
+                        context.TotalTransformErrors);
+                    return false;
+                }
+
+                // Automatically deserialize the entire nested structure using the DTO
+                if (!TryDeserializeRawResponse<NhlRosterRootDTO>(raw, "TransformRosters", out var rosterData) || rosterData == null)
+                {
+                    context.TotalTransformErrors++;
+                    _logger.LogErrorWithColor(
+                        "TransformRosters skipping: Failed to deserialize roster data for EntityId: {EntityId}. Total transform errors: {TotalErrors}", 
+                        ConsoleColor.Red, 
+                        raw.EntityId, 
+                        context.TotalTransformErrors);
+                    return false;
+                }
+
+                // Flatten the three positional lists into a single collection for processing
+                IEnumerable<NhlPlayerDTO> allPlayers = (rosterData.Forwards ?? Enumerable.Empty<NhlPlayerDTO>())
+                .Concat(rosterData.Defensemen ?? Enumerable.Empty<NhlPlayerDTO>())
+                .Concat(rosterData.Goalies ?? Enumerable.Empty<NhlPlayerDTO>());
+
+                bool itemChanges = false;
+                // Loop through each player DTO and add new TeamRoster relationships to the TeamRosters table if they don't already exist
+                foreach (NhlPlayerDTO playerDto in allPlayers)
+                {
+                    if (!validPlayerIds.Contains(playerDto.Id))
+                    {
+                        context.TotalTransformErrors++;
+                        _logger.LogErrorWithColor(
+                            "TransformRosters skipping: Player ID {PlayerId} not found in valid players for team roster (TeamId: {TeamId}, SeasonId: {SeasonId}). Total transform errors: {TotalErrors}",
+                            ConsoleColor.Red,
+                            playerDto.Id,
+                            teamId,
+                            seasonId,
+                            context.TotalTransformErrors);
+                        continue;
+                    }
+
+                    if (existingRosters.Contains((teamId, playerDto.Id, seasonId)))
+                    {
+                        _logger.LogDebug("Transform Roster skipping: Relationship already exists for PlayerId {PlayerId}, TeamId {TeamId} and SeasonId {SeasonId}",
+                            playerDto.Id,
+                            teamId,
+                            seasonId);
+                        continue;
+                    }
+
+                    _db.TeamRosters.Add(new TeamRosters
+                    {
+                        TeamId = teamId,
+                        PlayerId = playerDto.Id,
+                        SeasonId = seasonId
+                    });
+                    existingRosters.Add((teamId, playerDto.Id, seasonId));
+                    itemChanges = true;
+                }
+                return itemChanges;
+            });
+        }
+
+        #endregion
+
+        #region TRANSFORM PROCESSING ENGINES
+
+        //////////////////////////////////////////////////////////////////////////////////////////////////
+        ////////////////////////////////////////     Level 1      ////////////////////////////////////////
+        //////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+
+        /// <summary>
+        /// Level 1: Main batch execution engine handling transactional persistence and memory cleanup.
+        /// </summary>
+        /// <remarks>
+        /// <para><strong>Purpose:</strong> The foundational low-level engine. Use directly for complex per-record transformations that don't fit a standard collection pattern.</para>
+        /// <para><strong>Behavior:</strong> Iterates over items, executes the async handler, saves database changes incrementally, and clears the EF change tracker to prevent memory bloat.</para>
+        /// </remarks>
+        private async Task ProcessBatchAsync<T>(WorkerContext context, IEnumerable<T> items, string endpointName, Func<T, Task<bool>> processItemAsync)
+        {
+            foreach (var item in items)
             {
                 bool hasChanges = false;
                 try
-                {                    
-                    // Skip if the EntityId is not in the expected format ("roster-TEAMCODE-SEASONID")
-                    string[] keyParts = raw.EntityId.Split('-');
-                    if (keyParts.Length < 3)
+                {
+                    hasChanges = await processItemAsync(item);
+
+                    if (hasChanges)
                     {
-                        _logger.LogError("TransformRosters skipping: Invalid EntityId format for team roster response: '{EntityId}'.", raw.EntityId);
-                        continue;
-                    }
-
-                    // Extract the team tri-code and season ID from the EntityId
-                    int totalParts = keyParts.Length;
-
-                    string teamTriCode = keyParts[totalParts - 2].Trim().ToUpper();
-                    if (!int.TryParse(keyParts[totalParts - 1], out int seasonId))
-                    {
-                        _logger.LogError("TransformRosters skipping: Failed to parse season ID from EntityId format: '{EntityId}'.", raw.EntityId);
-                        continue;
-                    }
-
-                    // Ensure the team and season exist in our database core tables before processing the roster
-                    if (!teamLookup.TryGetValue((teamTriCode, seasonId), out int teamId) || !validSeasonIds.Contains(seasonId))
-                        continue;
-
-                    // Automatically deserialize the entire nested structure using the DTO
-                    if (!raw.ResponseJson.TryDeserializeSafe<NhlRosterRootDTO>(_logger, out var rosterData, $"team roster payload {raw.EntityId}", out _) || rosterData == null)
-                    {
-                        continue;
-                    }
-
-                    // Flatten the three positional lists into a single collection for processing
-                    IEnumerable<NhlPlayerDTO> allPlayers = (rosterData.Forwards ?? Enumerable.Empty<NhlPlayerDTO>())
-                    .Concat(rosterData.Defensemen ?? Enumerable.Empty<NhlPlayerDTO>())
-                    .Concat(rosterData.Goalies ?? Enumerable.Empty<NhlPlayerDTO>());
-
-                    // Loop through each player DTO and add new TeamRoster relationships to the TeamRosters table if they don't already exist
-                    foreach (NhlPlayerDTO playerDto in allPlayers)
-                    {
-                        if (!validPlayerIds.Contains(playerDto.Id) || existingRosters.Contains((teamId, playerDto.Id, seasonId)))
-                            continue;
-
-                        _db.TeamRosters.Add(new TeamRosters
-                        {
-                            TeamId = teamId,
-                            PlayerId = playerDto.Id,
-                            SeasonId = seasonId
-                        });
-                        existingRosters.Add((teamId, playerDto.Id, seasonId));
-                        hasChanges = true;
+                        await _db.SaveChangesAsync();
                     }
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Failed to transform team roster relationship for EntityId {EntityId}", raw.EntityId);
+                    context.TotalTransformErrors++;
+                    _logger.LogErrorWithColor(
+                        ex, 
+                        "Failed to transform '{EndpointName}' payload. Total transform errors: {TotalErrors}", 
+                        ConsoleColor.Red, 
+                        endpointName, 
+                        context.TotalTransformErrors);
                 }
-                if (hasChanges)
+                finally
                 {
-                    await _db.SaveChangesAsync();
                     _db.ChangeTracker.Clear();
                 }
             }
-           
         }
+
+
+
+        /////////////////////////////////////////////////////////////////////////////////////////////////
+        ////////////////////////////////////////     Level 2     ////////////////////////////////////////
+        /////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+
+        /// <summary>
+        /// Level 2: Intermediate engine for processing unique root payloads that contain nested items.
+        /// </summary>
+        /// <remarks>
+        /// <para><strong>Purpose:</strong> Use when loading a staging endpoint whose root JSON requires global asynchronous processing per record.</para>
+        /// <para><strong>Behavior:</strong> Fetches raw records, handles root-level deserialization, and delegates item execution down to Motor 1.</para>
+        /// </remarks>
+        private async Task ProcessEndpointAsync<TRoot>(WorkerContext context, string endpoint, string operationName, Func<TRoot, Task<bool>> processRootAsync)
+            where TRoot : class
+        {
+            var raws = await _db.RawApiResponses.Where(r => r.Endpoint == endpoint).ToListAsync();
+
+            await ProcessBatchAsync(context, raws, operationName, async raw =>
+            {
+                // If the root deserialization fails, skip processing this record
+                if (!TryDeserializeRawResponse<TRoot>(raw, operationName, out var root) || root == null)
+                {                   
+                    _logger.LogErrorWithColor(
+                        "{OperationName} skipping: Failed to deserialize root payload for EntityId '{EntityId}'. Total transform errors: {TotalErrors}", 
+                        ConsoleColor.Red, 
+                        operationName, 
+                        raw.EntityId, 
+                        context.TotalTransformErrors);
+                    return false;
+                }
+
+                return await processRootAsync(root);
+            });
+        }
+
+        /// <summary>
+        /// Level 2: Intermediate engine to iterate through and process a collection of child items extracted from a root payload.
+        /// </summary>
+        /// <remarks>
+        /// <para><strong>Purpose:</strong> Use when each raw response contains an array or list of items that need to be iterated over (e.g., teams or roster items).</para>
+        /// <para><strong>Behavior:</strong> Deserializes the root entity, extracts the inner collection via the provided selector, and evaluates the processing logic on each item.</para>
+        /// </remarks>
+        private async Task ProcessEndpointCollectionAsync<TRoot, TItem>(WorkerContext context, string endpoint, string operationName, Func<TRoot, IEnumerable<TItem>> itemsSelector, Func<TItem, Task<bool>> processItemAsync)
+            where TRoot : class
+        {
+            var raws = await _db.RawApiResponses.Where(r => r.Endpoint == endpoint).ToListAsync();
+
+            /// Use the batch processing engine to handle each raw response, deserialize the root payload, and process each item in the extracted collection
+            await ProcessBatchAsync(context, raws, operationName, async raw =>
+            {
+                // Attempt to deserialize the root payload from the raw response. If deserialization fails, skip processing this record.
+                if (!TryDeserializeRawResponse<TRoot>(raw, operationName, out var root) || root == null)
+                {
+                    context.TotalTransformErrors++;
+                    _logger.LogErrorWithColor(
+                        "{OperationName} skipping: Failed to deserialize root payload for EntityId '{EntityId}'. Total transform errors: {TotalErrors}", 
+                        ConsoleColor.Red, 
+                        operationName, 
+                        raw.EntityId, 
+                        context.TotalTransformErrors);
+                    return false;
+                }
+
+                bool itemChanges = false;
+
+                // Loop through each item extracted from the root payload and process it using the provided async handler
+                foreach (var item in itemsSelector(root))
+                {
+                    if (await processItemAsync(item))
+                    {
+                        itemChanges = true;
+                    }
+                }
+
+                return itemChanges;
+            });
+        }
+
+
+
+        /////////////////////////////////////////////////////////////////////////////////////////////////
+        ////////////////////////////////////////     Level 3     ////////////////////////////////////////
+        /////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+
+        /// <summary>
+        /// Level 3: High-level turn-key engine to automatically transform and insert standardized entities with primary key duplicate checking.
+        /// </summary>
+        /// <remarks>
+        /// <para><strong>Purpose:</strong> The default choice for 90% of simple entities that extract items from JSON and map directly into a table.</para>
+        /// <para><strong>Behavior:</strong> Automatically caches existing database keys to prevent primary key collisions, extracts items, maps them to the target entity, and stages them for insertion.</para>
+        /// </remarks>
+        private async Task ProcessGenericCollectionAsync<TRoot, TItem, TKey, TEntity>(WorkerContext context, string endpoint, string operationName, Func<TRoot, IEnumerable<TItem>> itemsSelector, Func<TItem, TKey> keySelector, Func<TItem, TEntity> mapEntity, DbSet<TEntity> dbSet)
+            where TRoot : class
+            where TEntity : class
+        {
+            var primaryKeyName = _db.Model.FindEntityType(typeof(TEntity))?.FindPrimaryKey()?.Properties[0].Name;
+            var knownKeys = primaryKeyName != null
+                ? await GetKnownKeysAsync<TEntity, TKey>(e => EF.Property<TKey>(e, primaryKeyName))
+                : new HashSet<TKey>();
+
+            await ProcessEndpointCollectionAsync<TRoot, TItem>(
+                context,
+                endpoint,
+                operationName,
+                itemsSelector,
+                item =>
+                {
+                    var key = keySelector(item);
+                    if (!knownKeys.Add(key))
+                    {
+                        _logger.LogDebug("{endpoint} skipping: Duplicate primary key {Key} for entity {EntityType}.", endpoint, key, typeof(TEntity).Name);
+                        return Task.FromResult(false);
+                    }
+
+                    var entity = mapEntity(item);
+                    dbSet.Add(entity);
+                    return Task.FromResult(true); 
+                });
+        }
+
+        #endregion
+
+        #region HELPER METHODS
+
+        /// <summary>
+        /// Builds a mapping of team tri-codes to their corresponding list of season IDs by processing the "roster-seasons" raw API responses from the database.
+        /// </summary>
+        private async Task<Dictionary<string, List<int>>> BuildTricodeToSeasonsMappingAsync(WorkerContext context)
+        {
+            var rosterSeasonsRaws = await _db.RawApiResponses.Where(r => r.Endpoint == "roster-seasons").ToListAsync();
+            var tricodeToSeasons = new Dictionary<string, List<int>>(StringComparer.OrdinalIgnoreCase);
+
+            // Loop through each raw roster-seasons response, validate the EntityId format, and deserialize the JSON payload into a list of season IDs.
+            foreach (var rRaw in rosterSeasonsRaws)
+            {
+                var parts = rRaw.EntityId.Split('-');
+                // Validate that the EntityId is in the expected format ("roster-seasons-TRICODE") and extract the tri-code. If the format is invalid, skip this record.
+                if (parts.Length < 3)
+                {
+                    context.TotalTransformErrors++;
+                    _logger.LogErrorWithColor(
+                        "TransformTeams skipping: Invalid EntityId format for roster-seasons response: '{EntityId}'. Total transform errors: {TotalErrors}", 
+                        ConsoleColor.Red, 
+                        rRaw.EntityId, 
+                        context.TotalTransformErrors);
+                    continue;
+                }
+                string triCode = parts.Last();
+
+                // Attempt to deserialize the raw response JSON into a list of season IDs. If deserialization fails or the result is null, skip this record.
+                if (!TryDeserializeRawResponse<List<int>>(rRaw, "TransformTeams (roster-seasons)", out var seasonsList) || seasonsList == null)
+                {
+                    context.TotalTransformErrors++;
+                    _logger.LogErrorWithColor(
+                        "TransformTeams skipping: Failed to deserialize roster-seasons for EntityId '{EntityId}'. Total transform errors: {TotalErrors}", 
+                        ConsoleColor.Red, 
+                        rRaw.EntityId, 
+                        context.TotalTransformErrors);
+                    continue;
+                }
+
+                tricodeToSeasons[triCode] = seasonsList;
+            }
+
+            return tricodeToSeasons;
+        }
+
+        /// <summary>
+        /// Parses a season ID into its corresponding start and end years. The season ID is expected to be in the format YYYYYYYY, where the first four digits represent the start year and the last four digits represent the end year. Falls back to a simple division and modulus operation, if the format is not as expected.
+        /// </summary>
+        /// <param name="seasonId"></param>
+        /// <returns></returns>
+        private static (int StartYear, int EndYear) ParseSeasonYears(int seasonId)
+        {
+            string seasonStr = seasonId.ToString();
+            if (seasonStr.Length == 8 &&
+                int.TryParse(seasonStr.AsSpan(0, 4), out int startYear) &&
+                int.TryParse(seasonStr.AsSpan(4, 4), out int endYear))
+            {
+                return (startYear, endYear);
+            }
+
+            return (seasonId / 10000, seasonId % 10000);
+        }
+
+        /// <summary>
+        /// Attempts to deserialize a raw API response's JSON payload into a specified type, logging errors if deserialization fails or if the payload is empty.
+        /// </summary>
+        private bool TryDeserializeRawResponse<T>(RawApiResponse raw, string operationName, out T? result)
+            where T : class
+        {
+            result = default;
+
+            if (string.IsNullOrWhiteSpace(raw.ResponseJson))
+            {
+                _logger.LogError("Raw response JSON is null, empty, or whitespace for entity type {EntityType} with ID {EntityId}.", typeof(T).Name, raw.Id);
+                return false;
+            }
+
+            if (!raw.ResponseJson.TryDeserializeSafe<T>(out result, out var parseError) || result == null)
+            {
+                _logger.LogError("Failed to deserialize raw response JSON for entity type {EntityType} with ID {EntityId}. Error: {ParseError}", typeof(T).Name, raw.Id, parseError);
+                return false;
+            }
+
+            return true;
+        }
+
+        /// <summary>
+        /// Fetches known keys from the database for a given entity type and selector expression, returning them as a HashSet for efficient lookups.
+        /// </summary>
+        /// <typeparam name="TEntity"></typeparam>
+        /// <typeparam name="TKey"></typeparam>
+        /// <param name="selector"></param>
+        /// <returns></returns>
+        private async Task<HashSet<TKey>> GetKnownKeysAsync<TEntity, TKey>(Expression<Func<TEntity, TKey>> selector)
+            where TEntity : class
+        {
+            return (await _db.Set<TEntity>().Select(selector).ToListAsync()).ToHashSet();
+        }
+
+        #endregion
     }
 }

@@ -19,11 +19,11 @@ namespace NHLApp.Infrastructure.NHL
         public async Task<string> GetTeamsAsync()
             => await _httpClient.GetStringAsync($"{StatsApiBase}team");
 
-        public async Task<string> GetTeamRosterAsync(string teamCode, int seasonId)
-             => await _httpClient.GetStringAsync($"{WebApiBase}roster/{teamCode}/{seasonId}");
-
         public async Task<string> GetTeamRosterSeasonsAsync(string teamCode)
             => await _httpClient.GetStringAsync($"{WebApiBase}roster-season/{teamCode}");
+
+        public async Task<string> GetTeamRosterAsync(string teamCode, int seasonId)
+             => await _httpClient.GetStringAsync($"{WebApiBase}roster/{teamCode}/{seasonId}");
 
         //public async Task<string> GetPlayerAsync(int playerId)
         //    => await _httpClient.GetStringAsync($"{WebApiBase}player/{playerId}/landing");

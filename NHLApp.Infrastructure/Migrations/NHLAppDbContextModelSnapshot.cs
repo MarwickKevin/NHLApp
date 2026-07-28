@@ -50,11 +50,20 @@ namespace NHLApp.Infrastructure.Migrations
                     b.Property<DateOnly?>("BirthDate")
                         .HasColumnType("date");
 
+                    b.Property<string>("BirthStateProvince")
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<string>("FirstName")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<string>("Headshot")
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<int?>("HeightInCentimeters")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("HeightInInches")
                         .HasColumnType("int");
 
                     b.Property<string>("LastName")
@@ -69,7 +78,13 @@ namespace NHLApp.Infrastructure.Migrations
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<int?>("SweaterNumber")
+                        .HasColumnType("int");
+
                     b.Property<int?>("WeightInKilograms")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("WeightInPounds")
                         .HasColumnType("int");
 
                     b.HasKey("PlayerId");

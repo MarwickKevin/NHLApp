@@ -6,7 +6,7 @@ using Microsoft.EntityFrameworkCore.Migrations;
 namespace NHLApp.Infrastructure.Migrations
 {
     /// <inheritdoc />
-    public partial class reset_migrations : Migration
+    public partial class init : Migration
     {
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
@@ -36,7 +36,12 @@ namespace NHLApp.Infrastructure.Migrations
                     BirthCity = table.Column<string>(type: "nvarchar(max)", nullable: true),
                     BirthCountry = table.Column<string>(type: "nvarchar(max)", nullable: true),
                     HeightInCentimeters = table.Column<int>(type: "int", nullable: true),
-                    WeightInKilograms = table.Column<int>(type: "int", nullable: true)
+                    WeightInKilograms = table.Column<int>(type: "int", nullable: true),
+                    Headshot = table.Column<string>(type: "nvarchar(max)", nullable: true),
+                    SweaterNumber = table.Column<int>(type: "int", nullable: true),
+                    HeightInInches = table.Column<int>(type: "int", nullable: true),
+                    WeightInPounds = table.Column<int>(type: "int", nullable: true),
+                    BirthStateProvince = table.Column<string>(type: "nvarchar(max)", nullable: true)
                 },
                 constraints: table =>
                 {
@@ -44,7 +49,7 @@ namespace NHLApp.Infrastructure.Migrations
                 });
 
             migrationBuilder.CreateTable(
-                name: "RawApiResponse",
+                name: "RawApiResponses",
                 columns: table => new
                 {
                     Id = table.Column<int>(type: "int", nullable: false)
@@ -56,7 +61,7 @@ namespace NHLApp.Infrastructure.Migrations
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("PK_RawApiResponse", x => x.Id);
+                    table.PrimaryKey("PK_RawApiResponses", x => x.Id);
                 });
 
             migrationBuilder.CreateTable(
@@ -77,6 +82,7 @@ namespace NHLApp.Infrastructure.Migrations
                 columns: table => new
                 {
                     TeamId = table.Column<int>(type: "int", nullable: false),
+                    SeasonId = table.Column<int>(type: "int", nullable: false),
                     FranchiseId = table.Column<int>(type: "int", nullable: true),
                     FullName = table.Column<string>(type: "nvarchar(max)", nullable: false),
                     TriCode = table.Column<string>(type: "nvarchar(max)", nullable: false),
@@ -85,16 +91,22 @@ namespace NHLApp.Infrastructure.Migrations
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("PK_Teams", x => x.TeamId);
+                    table.PrimaryKey("PK_Teams", x => new { x.TeamId, x.SeasonId });
                     table.ForeignKey(
                         name: "FK_Teams_Franchises_FranchiseId",
                         column: x => x.FranchiseId,
                         principalTable: "Franchises",
                         principalColumn: "FranchiseId");
+                    table.ForeignKey(
+                        name: "FK_Teams_Seasons_SeasonId",
+                        column: x => x.SeasonId,
+                        principalTable: "Seasons",
+                        principalColumn: "SeasonId",
+                        onDelete: ReferentialAction.Cascade);
                 });
 
             migrationBuilder.CreateTable(
-                name: "TeamRoster",
+                name: "TeamRosters",
                 columns: table => new
                 {
                     TeamId = table.Column<int>(type: "int", nullable: false),
@@ -103,63 +115,62 @@ namespace NHLApp.Infrastructure.Migrations
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("PK_TeamRoster", x => new { x.TeamId, x.PlayerId, x.SeasonId });
+                    table.PrimaryKey("PK_TeamRosters", x => new { x.TeamId, x.PlayerId, x.SeasonId });
                     table.ForeignKey(
-                        name: "FK_TeamRoster_Players_PlayerId",
+                        name: "FK_TeamRosters_Players_PlayerId",
                         column: x => x.PlayerId,
                         principalTable: "Players",
                         principalColumn: "PlayerId",
                         onDelete: ReferentialAction.Cascade);
                     table.ForeignKey(
-                        name: "FK_TeamRoster_Seasons_SeasonId",
-                        column: x => x.SeasonId,
-                        principalTable: "Seasons",
-                        principalColumn: "SeasonId",
-                        onDelete: ReferentialAction.Cascade);
-                    table.ForeignKey(
-                        name: "FK_TeamRoster_Teams_TeamId",
-                        column: x => x.TeamId,
+                        name: "FK_TeamRosters_Teams_TeamId_SeasonId",
+                        columns: x => new { x.TeamId, x.SeasonId },
                         principalTable: "Teams",
-                        principalColumn: "TeamId",
+                        principalColumns: new[] { "TeamId", "SeasonId" },
                         onDelete: ReferentialAction.Cascade);
                 });
 
             migrationBuilder.CreateIndex(
-                name: "IX_TeamRoster_PlayerId",
-                table: "TeamRoster",
+                name: "IX_TeamRosters_PlayerId",
+                table: "TeamRosters",
                 column: "PlayerId");
 
             migrationBuilder.CreateIndex(
-                name: "IX_TeamRoster_SeasonId",
-                table: "TeamRoster",
-                column: "SeasonId");
+                name: "IX_TeamRosters_TeamId_SeasonId",
+                table: "TeamRosters",
+                columns: new[] { "TeamId", "SeasonId" });
 
             migrationBuilder.CreateIndex(
                 name: "IX_Teams_FranchiseId",
                 table: "Teams",
                 column: "FranchiseId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_Teams_SeasonId",
+                table: "Teams",
+                column: "SeasonId");
         }
 
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.DropTable(
-                name: "RawApiResponse");
+                name: "RawApiResponses");
 
             migrationBuilder.DropTable(
-                name: "TeamRoster");
+                name: "TeamRosters");
 
             migrationBuilder.DropTable(
                 name: "Players");
-
-            migrationBuilder.DropTable(
-                name: "Seasons");
 
             migrationBuilder.DropTable(
                 name: "Teams");
 
             migrationBuilder.DropTable(
                 name: "Franchises");
+
+            migrationBuilder.DropTable(
+                name: "Seasons");
         }
     }
 }

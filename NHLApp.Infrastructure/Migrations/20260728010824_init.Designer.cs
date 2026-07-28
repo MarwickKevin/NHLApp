@@ -12,8 +12,8 @@ using NHLApp.Infrastructure.Data;
 namespace NHLApp.Infrastructure.Migrations
 {
     [DbContext(typeof(NHLAppDbContext))]
-    [Migration("20260718030653_reset_migrations")]
-    partial class reset_migrations
+    [Migration("20260728010824_init")]
+    partial class init
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -53,11 +53,20 @@ namespace NHLApp.Infrastructure.Migrations
                     b.Property<DateOnly?>("BirthDate")
                         .HasColumnType("date");
 
+                    b.Property<string>("BirthStateProvince")
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<string>("FirstName")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<string>("Headshot")
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<int?>("HeightInCentimeters")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("HeightInInches")
                         .HasColumnType("int");
 
                     b.Property<string>("LastName")
@@ -72,7 +81,13 @@ namespace NHLApp.Infrastructure.Migrations
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<int?>("SweaterNumber")
+                        .HasColumnType("int");
+
                     b.Property<int?>("WeightInKilograms")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("WeightInPounds")
                         .HasColumnType("int");
 
                     b.HasKey("PlayerId");
@@ -105,7 +120,7 @@ namespace NHLApp.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("RawApiResponse");
+                    b.ToTable("RawApiResponses");
                 });
 
             modelBuilder.Entity("NHLApp.Domain.Entities.Season", b =>
@@ -129,6 +144,9 @@ namespace NHLApp.Infrastructure.Migrations
                     b.Property<int>("TeamId")
                         .HasColumnType("int");
 
+                    b.Property<int>("SeasonId")
+                        .HasColumnType("int");
+
                     b.Property<int?>("FranchiseId")
                         .HasColumnType("int");
 
@@ -147,14 +165,16 @@ namespace NHLApp.Infrastructure.Migrations
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
 
-                    b.HasKey("TeamId");
+                    b.HasKey("TeamId", "SeasonId");
 
                     b.HasIndex("FranchiseId");
+
+                    b.HasIndex("SeasonId");
 
                     b.ToTable("Teams");
                 });
 
-            modelBuilder.Entity("NHLApp.Domain.Entities.TeamRoster", b =>
+            modelBuilder.Entity("NHLApp.Domain.Entities.TeamRosters", b =>
                 {
                     b.Property<int>("TeamId")
                         .HasColumnType("int");
@@ -169,9 +189,9 @@ namespace NHLApp.Infrastructure.Migrations
 
                     b.HasIndex("PlayerId");
 
-                    b.HasIndex("SeasonId");
+                    b.HasIndex("TeamId", "SeasonId");
 
-                    b.ToTable("TeamRoster");
+                    b.ToTable("TeamRosters");
                 });
 
             modelBuilder.Entity("NHLApp.Domain.Entities.Team", b =>
@@ -180,10 +200,18 @@ namespace NHLApp.Infrastructure.Migrations
                         .WithMany("Teams")
                         .HasForeignKey("FranchiseId");
 
+                    b.HasOne("NHLApp.Domain.Entities.Season", "Season")
+                        .WithMany()
+                        .HasForeignKey("SeasonId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
                     b.Navigation("Franchise");
+
+                    b.Navigation("Season");
                 });
 
-            modelBuilder.Entity("NHLApp.Domain.Entities.TeamRoster", b =>
+            modelBuilder.Entity("NHLApp.Domain.Entities.TeamRosters", b =>
                 {
                     b.HasOne("NHLApp.Domain.Entities.Player", "Player")
                         .WithMany()
@@ -191,21 +219,13 @@ namespace NHLApp.Infrastructure.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
-                    b.HasOne("NHLApp.Domain.Entities.Season", "Season")
-                        .WithMany()
-                        .HasForeignKey("SeasonId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
                     b.HasOne("NHLApp.Domain.Entities.Team", "Team")
                         .WithMany()
-                        .HasForeignKey("TeamId")
+                        .HasForeignKey("TeamId", "SeasonId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
                     b.Navigation("Player");
-
-                    b.Navigation("Season");
 
                     b.Navigation("Team");
                 });
