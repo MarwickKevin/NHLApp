@@ -1,5 +1,6 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using NHLApp.Application.Contexts;
 using NHLApp.Application.DTOs;
 using NHLApp.Application.Extensions;
 using NHLApp.Domain.Entities;
@@ -12,6 +13,7 @@ namespace NHLApp.Application.Services
     // TODO: Make error handling consistent across all methods, including logging and exception throwing.
     // TODO: Improve commenting and documentation for each method, including parameter descriptions and return values.
     // TODO: Implement an Upsert mechanism (or update logic) to refresh existing entities if source JSON data or schema columns change.
+    // TODO: Add counters of success (x/y) and show in console
 
     public class TransformService
     {
@@ -30,9 +32,10 @@ namespace NHLApp.Application.Services
         /// Transforms raw season JSON payloads into structured Season entities in the database, extracting start and end years from the season ID.
         /// </summary>
         /// <returns></returns>
-        public async Task TransformSeasonsAsync()
+        public async Task TransformSeasonsAsync(WorkerContext context)
         {
             await ProcessGenericCollectionAsync<List<int>, int, int, Season>(
+                context,
                 endpoint: "season",
                 operationName: "TransformSeasons",
                 itemsSelector: seasonIds => seasonIds,
@@ -49,10 +52,10 @@ namespace NHLApp.Application.Services
         /// Transforms raw team JSON payloads into structured Franchise and Team entities in the database, linking teams to their franchises and seasons.
         /// </summary>
         /// <returns></returns>        
-        public async Task TransformTeamsAsync()
+        public async Task TransformTeamsAsync(WorkerContext context)
         {
             // Build the mapping of team tri-codes to their corresponding list of season IDs using a helper
-            var tricodeToSeasons = await BuildTricodeToSeasonsMappingAsync();
+            var tricodeToSeasons = await BuildTricodeToSeasonsMappingAsync(context);
 
             // Load existing caches in memory
             HashSet<int> knownFranchiseIds = await GetKnownKeysAsync<Franchise, int>(f => f.FranchiseId);
@@ -61,6 +64,7 @@ namespace NHLApp.Application.Services
 
             // Process each team item from the raw API responses, adding new franchises, seasons, and team-season relationships as needed
             await ProcessEndpointCollectionAsync<NhlTeamRootDTO, NhlTeamItemDTO>(
+                context,
                 endpoint: "team",
                 operationName: "TransformTeams",
                 itemsSelector: root => root.Data ?? Enumerable.Empty<NhlTeamItemDTO>(),
@@ -115,9 +119,10 @@ namespace NHLApp.Application.Services
         /// Transforms raw player JSON payloads into structured Player entities in the database, extracting relevant player information.
         /// </summary>
         /// <returns></returns>
-        public async Task TransformPlayersAsync()
+        public async Task TransformPlayersAsync(WorkerContext context)
         {
             await ProcessGenericCollectionAsync<NhlRosterRootDTO, NhlPlayerDTO, int, Player>(
+                context,
                 endpoint: "roster",
                 operationName: "TransformPlayers",
                 itemsSelector: root => (root.Forwards ?? Enumerable.Empty<NhlPlayerDTO>())
@@ -149,7 +154,7 @@ namespace NHLApp.Application.Services
         /// Transforms raw roster JSON payloads into structured TeamRosters relationships in the database, linking players to teams for specific seasons.
         /// </summary>
         /// <returns></returns>
-        public async Task TransformRostersAsync()
+        public async Task TransformRostersAsync(WorkerContext context)
         {
             // Load existing TeamRoster relationships into memory to avoid duplicates and round-trips            
             HashSet<(int TeamId, int PlayerId, int SeasonId)> existingRosters = await GetKnownKeysAsync<TeamRosters, (int TeamId, int PlayerId, int SeasonId)>(tr => ValueTuple.Create(tr.TeamId, tr.PlayerId, tr.SeasonId));
@@ -164,32 +169,55 @@ namespace NHLApp.Application.Services
 
             var rawRecords = await _db.RawApiResponses.Where(r => r.Endpoint == "roster").ToListAsync();
 
-            await ProcessBatchAsync(rawRecords, "TransformRosters", async raw =>
+            
+            await ProcessBatchAsync(context, rawRecords, "TransformRosters", async raw =>
             {
                 // Skip if the EntityId is not in the expected format ("roster-TEAMCODE-SEASONID")
                 string[] keyParts = raw.EntityId.Split('-');
                 if (keyParts.Length < 3)
                 {
-                    _logger.LogError("TransformRosters skipping: Invalid EntityId format for team roster response: '{EntityId}'.", raw.EntityId);
+                    context.TotalTransformErrors++;
+                    _logger.LogErrorWithColor(
+                        "TransformRosters skipping: Invalid EntityId format for team roster response: {EntityId}. Total transform errors: {TotalErrors}", 
+                        ConsoleColor.Red, 
+                        raw.EntityId, 
+                        context.TotalTransformErrors);
                     return false;
                 }
 
                 string teamTriCode = keyParts[keyParts.Length - 2].Trim().ToUpper();
                 if (!int.TryParse(keyParts[keyParts.Length - 1], out int seasonId))
                 {
-                    _logger.LogError("TransformRosters skipping: Failed to parse season ID from EntityId format: '{EntityId}'.", raw.EntityId);
+                    context.TotalTransformErrors++;
+                    _logger.LogErrorWithColor(
+                        "TransformRosters skipping: Failed to parse season ID from EntityId format: {EntityId}. Total transform errors: {TotalErrors}", 
+                        ConsoleColor.Red, 
+                        raw.EntityId, 
+                        context.TotalTransformErrors);
                     return false;
                 }
 
                 // Ensure the team and season exist in our database core tables before processing the roster
                 if (!teamLookup.TryGetValue((teamTriCode, seasonId), out int teamId) || !validSeasonIds.Contains(seasonId))
                 {
+                    context.TotalTransformErrors++;
+                    _logger.LogErrorWithColor(
+                        "TransformRosters skipping: Team or season not found for EntityId: {EntityId}. Total transform errors: {TotalErrors}", 
+                        ConsoleColor.Red, 
+                        raw.EntityId, 
+                        context.TotalTransformErrors);
                     return false;
                 }
 
                 // Automatically deserialize the entire nested structure using the DTO
                 if (!TryDeserializeRawResponse<NhlRosterRootDTO>(raw, "TransformRosters", out var rosterData) || rosterData == null)
                 {
+                    context.TotalTransformErrors++;
+                    _logger.LogErrorWithColor(
+                        "TransformRosters skipping: Failed to deserialize roster data for EntityId: {EntityId}. Total transform errors: {TotalErrors}", 
+                        ConsoleColor.Red, 
+                        raw.EntityId, 
+                        context.TotalTransformErrors);
                     return false;
                 }
 
@@ -202,8 +230,27 @@ namespace NHLApp.Application.Services
                 // Loop through each player DTO and add new TeamRoster relationships to the TeamRosters table if they don't already exist
                 foreach (NhlPlayerDTO playerDto in allPlayers)
                 {
-                    if (!validPlayerIds.Contains(playerDto.Id) || existingRosters.Contains((teamId, playerDto.Id, seasonId)))
+                    if (!validPlayerIds.Contains(playerDto.Id))
+                    {
+                        context.TotalTransformErrors++;
+                        _logger.LogErrorWithColor(
+                            "TransformRosters skipping: Player ID {PlayerId} not found in valid players for team roster (TeamId: {TeamId}, SeasonId: {SeasonId}). Total transform errors: {TotalErrors}",
+                            ConsoleColor.Red,
+                            playerDto.Id,
+                            teamId,
+                            seasonId,
+                            context.TotalTransformErrors);
                         continue;
+                    }
+
+                    if (existingRosters.Contains((teamId, playerDto.Id, seasonId)))
+                    {
+                        _logger.LogDebug("Transform Roster skipping: Relationship already exists for PlayerId {PlayerId}, TeamId {TeamId} and SeasonId {SeasonId}",
+                            playerDto.Id,
+                            teamId,
+                            seasonId);
+                        continue;
+                    }
 
                     _db.TeamRosters.Add(new TeamRosters
                     {
@@ -222,14 +269,20 @@ namespace NHLApp.Application.Services
 
         #region TRANSFORM PROCESSING ENGINES
 
+        //////////////////////////////////////////////////////////////////////////////////////////////////
+        ////////////////////////////////////////     Level 1      ////////////////////////////////////////
+        //////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+
         /// <summary>
-        /// Main batch execution engine handling transactional persistence and memory cleanup.
+        /// Level 1: Main batch execution engine handling transactional persistence and memory cleanup.
         /// </summary>
         /// <remarks>
         /// <para><strong>Purpose:</strong> The foundational low-level engine. Use directly for complex per-record transformations that don't fit a standard collection pattern.</para>
         /// <para><strong>Behavior:</strong> Iterates over items, executes the async handler, saves database changes incrementally, and clears the EF change tracker to prevent memory bloat.</para>
         /// </remarks>
-        private async Task ProcessBatchAsync<T>(IEnumerable<T> items, string endpointName, Func<T, Task<bool>> processItemAsync)
+        private async Task ProcessBatchAsync<T>(WorkerContext context, IEnumerable<T> items, string endpointName, Func<T, Task<bool>> processItemAsync)
         {
             foreach (var item in items)
             {
@@ -237,36 +290,60 @@ namespace NHLApp.Application.Services
                 try
                 {
                     hasChanges = await processItemAsync(item);
+
+                    if (hasChanges)
+                    {
+                        await _db.SaveChangesAsync();
+                    }
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Failed to transform {Endpoint} payload.", endpointName);
+                    context.TotalTransformErrors++;
+                    _logger.LogErrorWithColor(
+                        ex, 
+                        "Failed to transform '{EndpointName}' payload. Total transform errors: {TotalErrors}", 
+                        ConsoleColor.Red, 
+                        endpointName, 
+                        context.TotalTransformErrors);
                 }
-
-                if (hasChanges)
+                finally
                 {
-                    await _db.SaveChangesAsync();
                     _db.ChangeTracker.Clear();
                 }
             }
         }
 
+
+
+        /////////////////////////////////////////////////////////////////////////////////////////////////
+        ////////////////////////////////////////     Level 2     ////////////////////////////////////////
+        /////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+
         /// <summary>
-        /// Intermediate engine for processing unique root payloads that contain nested items.
+        /// Level 2: Intermediate engine for processing unique root payloads that contain nested items.
         /// </summary>
         /// <remarks>
         /// <para><strong>Purpose:</strong> Use when loading a staging endpoint whose root JSON requires global asynchronous processing per record.</para>
         /// <para><strong>Behavior:</strong> Fetches raw records, handles root-level deserialization, and delegates item execution down to Motor 1.</para>
         /// </remarks>
-        private async Task ProcessEndpointAsync<TRoot>(string endpoint, string operationName, Func<TRoot, Task<bool>> processRootAsync)
+        private async Task ProcessEndpointAsync<TRoot>(WorkerContext context, string endpoint, string operationName, Func<TRoot, Task<bool>> processRootAsync)
             where TRoot : class
         {
             var raws = await _db.RawApiResponses.Where(r => r.Endpoint == endpoint).ToListAsync();
 
-            await ProcessBatchAsync(raws, operationName, async raw =>
+            await ProcessBatchAsync(context, raws, operationName, async raw =>
             {
+                // If the root deserialization fails, skip processing this record
                 if (!TryDeserializeRawResponse<TRoot>(raw, operationName, out var root) || root == null)
-                {
+                {                   
+                    _logger.LogErrorWithColor(
+                        "{OperationName} skipping: Failed to deserialize root payload for EntityId '{EntityId}'. Total transform errors: {TotalErrors}", 
+                        ConsoleColor.Red, 
+                        operationName, 
+                        raw.EntityId, 
+                        context.TotalTransformErrors);
                     return false;
                 }
 
@@ -275,26 +352,36 @@ namespace NHLApp.Application.Services
         }
 
         /// <summary>
-        /// Specialized engine to iterate through and process a collection of child items extracted from a root payload.
+        /// Level 2: Intermediate engine to iterate through and process a collection of child items extracted from a root payload.
         /// </summary>
         /// <remarks>
         /// <para><strong>Purpose:</strong> Use when each raw response contains an array or list of items that need to be iterated over (e.g., teams or roster items).</para>
         /// <para><strong>Behavior:</strong> Deserializes the root entity, extracts the inner collection via the provided selector, and evaluates the processing logic on each item.</para>
         /// </remarks>
-        private async Task ProcessEndpointCollectionAsync<TRoot, TItem>(string endpoint, string operationName, Func<TRoot, IEnumerable<TItem>> itemsSelector, Func<TItem, Task<bool>> processItemAsync)
+        private async Task ProcessEndpointCollectionAsync<TRoot, TItem>(WorkerContext context, string endpoint, string operationName, Func<TRoot, IEnumerable<TItem>> itemsSelector, Func<TItem, Task<bool>> processItemAsync)
             where TRoot : class
         {
             var raws = await _db.RawApiResponses.Where(r => r.Endpoint == endpoint).ToListAsync();
 
-            await ProcessBatchAsync(raws, operationName, async raw =>
+            /// Use the batch processing engine to handle each raw response, deserialize the root payload, and process each item in the extracted collection
+            await ProcessBatchAsync(context, raws, operationName, async raw =>
             {
+                // Attempt to deserialize the root payload from the raw response. If deserialization fails, skip processing this record.
                 if (!TryDeserializeRawResponse<TRoot>(raw, operationName, out var root) || root == null)
                 {
+                    context.TotalTransformErrors++;
+                    _logger.LogErrorWithColor(
+                        "{OperationName} skipping: Failed to deserialize root payload for EntityId '{EntityId}'. Total transform errors: {TotalErrors}", 
+                        ConsoleColor.Red, 
+                        operationName, 
+                        raw.EntityId, 
+                        context.TotalTransformErrors);
                     return false;
                 }
 
                 bool itemChanges = false;
 
+                // Loop through each item extracted from the root payload and process it using the provided async handler
                 foreach (var item in itemsSelector(root))
                 {
                     if (await processItemAsync(item))
@@ -307,14 +394,22 @@ namespace NHLApp.Application.Services
             });
         }
 
+
+
+        /////////////////////////////////////////////////////////////////////////////////////////////////
+        ////////////////////////////////////////     Level 3     ////////////////////////////////////////
+        /////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+
         /// <summary>
-        /// High-level turn-key engine to automatically transform and insert standardized entities with primary key duplicate checking.
+        /// Level 3: High-level turn-key engine to automatically transform and insert standardized entities with primary key duplicate checking.
         /// </summary>
         /// <remarks>
         /// <para><strong>Purpose:</strong> The default choice for 90% of simple entities that extract items from JSON and map directly into a table.</para>
         /// <para><strong>Behavior:</strong> Automatically caches existing database keys to prevent primary key collisions, extracts items, maps them to the target entity, and stages them for insertion.</para>
         /// </remarks>
-        private async Task ProcessGenericCollectionAsync<TRoot, TItem, TKey, TEntity>(string endpoint, string operationName, Func<TRoot, IEnumerable<TItem>> itemsSelector, Func<TItem, TKey> keySelector, Func<TItem, TEntity> mapEntity, DbSet<TEntity> dbSet)
+        private async Task ProcessGenericCollectionAsync<TRoot, TItem, TKey, TEntity>(WorkerContext context, string endpoint, string operationName, Func<TRoot, IEnumerable<TItem>> itemsSelector, Func<TItem, TKey> keySelector, Func<TItem, TEntity> mapEntity, DbSet<TEntity> dbSet)
             where TRoot : class
             where TEntity : class
         {
@@ -324,6 +419,7 @@ namespace NHLApp.Application.Services
                 : new HashSet<TKey>();
 
             await ProcessEndpointCollectionAsync<TRoot, TItem>(
+                context,
                 endpoint,
                 operationName,
                 itemsSelector,
@@ -331,11 +427,14 @@ namespace NHLApp.Application.Services
                 {
                     var key = keySelector(item);
                     if (!knownKeys.Add(key))
+                    {
+                        _logger.LogDebug("{endpoint} skipping: Duplicate primary key {Key} for entity {EntityType}.", endpoint, key, typeof(TEntity).Name);
                         return Task.FromResult(false);
+                    }
 
                     var entity = mapEntity(item);
                     dbSet.Add(entity);
-                    return Task.FromResult(true); // Ici on garde Task.FromResult car processItemAsync attend une Task<bool>
+                    return Task.FromResult(true); 
                 });
         }
 
@@ -346,25 +445,40 @@ namespace NHLApp.Application.Services
         /// <summary>
         /// Builds a mapping of team tri-codes to their corresponding list of season IDs by processing the "roster-seasons" raw API responses from the database.
         /// </summary>
-        private async Task<Dictionary<string, List<int>>> BuildTricodeToSeasonsMappingAsync()
+        private async Task<Dictionary<string, List<int>>> BuildTricodeToSeasonsMappingAsync(WorkerContext context)
         {
             var rosterSeasonsRaws = await _db.RawApiResponses.Where(r => r.Endpoint == "roster-seasons").ToListAsync();
             var tricodeToSeasons = new Dictionary<string, List<int>>(StringComparer.OrdinalIgnoreCase);
 
+            // Loop through each raw roster-seasons response, validate the EntityId format, and deserialize the JSON payload into a list of season IDs.
             foreach (var rRaw in rosterSeasonsRaws)
             {
                 var parts = rRaw.EntityId.Split('-');
+                // Validate that the EntityId is in the expected format ("roster-seasons-TRICODE") and extract the tri-code. If the format is invalid, skip this record.
                 if (parts.Length < 3)
                 {
-                    _logger.LogError("TransformTeams aborted: Invalid EntityId format for roster-seasons response: '{EntityId}'.", rRaw.EntityId);
+                    context.TotalTransformErrors++;
+                    _logger.LogErrorWithColor(
+                        "TransformTeams skipping: Invalid EntityId format for roster-seasons response: '{EntityId}'. Total transform errors: {TotalErrors}", 
+                        ConsoleColor.Red, 
+                        rRaw.EntityId, 
+                        context.TotalTransformErrors);
                     continue;
                 }
                 string triCode = parts.Last();
 
+                // Attempt to deserialize the raw response JSON into a list of season IDs. If deserialization fails or the result is null, skip this record.
                 if (!TryDeserializeRawResponse<List<int>>(rRaw, "TransformTeams (roster-seasons)", out var seasonsList) || seasonsList == null)
                 {
+                    context.TotalTransformErrors++;
+                    _logger.LogErrorWithColor(
+                        "TransformTeams skipping: Failed to deserialize roster-seasons for EntityId '{EntityId}'. Total transform errors: {TotalErrors}", 
+                        ConsoleColor.Red, 
+                        rRaw.EntityId, 
+                        context.TotalTransformErrors);
                     continue;
                 }
+
                 tricodeToSeasons[triCode] = seasonsList;
             }
 
@@ -399,12 +513,13 @@ namespace NHLApp.Application.Services
 
             if (string.IsNullOrWhiteSpace(raw.ResponseJson))
             {
-                _logger.LogError("{Operation} skipping: ResponseJson is null or whitespace for EntityId '{EntityId}'.", operationName, raw.EntityId);
+                _logger.LogError("Raw response JSON is null, empty, or whitespace for entity type {EntityType} with ID {EntityId}.", typeof(T).Name, raw.Id);
                 return false;
             }
 
-            if (!raw.ResponseJson.TryDeserializeSafe<T>(_logger, out result, $"{operationName.ToLower()} payload {raw.EntityId}", out _) || result == null)
+            if (!raw.ResponseJson.TryDeserializeSafe<T>(out result, out var parseError) || result == null)
             {
+                _logger.LogError("Failed to deserialize raw response JSON for entity type {EntityType} with ID {EntityId}. Error: {ParseError}", typeof(T).Name, raw.Id, parseError);
                 return false;
             }
 

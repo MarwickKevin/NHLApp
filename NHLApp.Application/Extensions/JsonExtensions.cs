@@ -1,4 +1,5 @@
 ﻿using Microsoft.Extensions.Logging;
+using NHLApp.Application.Contexts;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -20,38 +21,24 @@ namespace NHLApp.Application.Extensions
         /// </summary>
         public static bool TryDeserializeSafe<T>(
             this string? json,
-            ILogger logger,
             out T? result,
-            string contextDescription,
-            out Exception? caughtException,
-            string? customErrorMessage = null) where T : class
+            out Exception? caughtException) where T : class
         {
             caughtException = null;
             result = default;
 
             if (string.IsNullOrWhiteSpace(json))
             {
-                logger.LogError("Cannot deserialize {ContextDescription} because the JSON string is null or empty.", contextDescription);
                 return false;
             }
 
             try
             {
                 result = JsonSerializer.Deserialize<T>(json, DefaultOptions);
-
-                if (result == null)
-                {
-                    logger.LogError(customErrorMessage ?? "Deserialized result for {ContextDescription} resulted in a null payload.", contextDescription);
-                    return false;
-                }
-
-                return true;
+                return result != null;
             }
             catch (JsonException ex)
             {
-                var message = customErrorMessage ?? "Failed to deserialize JSON for {ContextDescription}.";
-                logger.LogError(ex, message, contextDescription);
-
                 caughtException = ex;
                 return false;
             }

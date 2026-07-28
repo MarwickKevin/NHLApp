@@ -1,4 +1,6 @@
+using Microsoft.Extensions.Logging;
 using NHLApp.Application.Contexts;
+using NHLApp.Application.Extensions;
 using NHLApp.Application.Services;
 using NHLApp.Infrastructure.Data;
 
@@ -8,54 +10,87 @@ namespace NHLApp.Worker
     {
         private readonly ILogger<Worker> _logger;
         private readonly IServiceProvider _serviceProvider;
-        public WorkerContext _context { get; private set; }
 
-        public Worker(ILogger<Worker> logger, IServiceProvider serviceProvider, WorkerContext context)
+        public Worker(ILogger<Worker> logger, IServiceProvider serviceProvider)
         {
             _logger = logger;
             _serviceProvider = serviceProvider;
-            _context = context;
         }
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
-            _logger.LogInformation("Worker NHLApp démarré");
-
             using var scope = _serviceProvider.CreateScope();
             var db = scope.ServiceProvider.GetRequiredService<NHLAppDbContext>();
             var importService = scope.ServiceProvider.GetRequiredService<ImportService>();
             var transformService = scope.ServiceProvider.GetRequiredService<TransformService>();
+            var context = scope.ServiceProvider.GetRequiredService<WorkerContext>();
 
+            // Log the start of the worker and record the start time
+            _logger.LogInformationWithColor("Worker NHLApp démarré", ConsoleColor.Green);
+            context.StartedAt = DateTime.Now;
 
-            // Import data from the NHL API into the database
             
-            await importService.ImportSeasonsAsync();
-            _logger.LogInformation("Import des saisons terminé");
 
-            await importService.ImportTeamsAsync();
-            _logger.LogInformation("Import des équipes terminé");
+            
+            ////////////////////////////////////////////////////
+            // Import data from the NHL API into the database //
+            ////////////////////////////////////////////////////
+            
+            await importService.ImportSeasonsAsync(context);
+            _logger.LogInformationWithColor("Import des saisons terminé", ConsoleColor.Green);
 
-            await importService.ImportRosterSeasonsAsync();
-            _logger.LogInformation("Import des saisons par équipe terminé");
+            await importService.ImportTeamsAsync(context);
+            _logger.LogInformationWithColor("Import des équipes terminé", ConsoleColor.Green);
 
-            await importService.ImportRostersAsync();
-            _logger.LogInformation("Import des rosters terminé");
+            await importService.ImportRosterSeasonsAsync(context);
+            _logger.LogInformationWithColor("Import des saisons par équipe terminé", ConsoleColor.Green);
+
+            await importService.ImportRostersAsync(context);
+            _logger.LogInformationWithColor("Import des rosters terminé", ConsoleColor.Green);
 
 
-            // Transform data from the database into the application models
+                        
+            //////////////////////////////////////////////////////////////////
+            // Transform data from the database into the application models //
+            //////////////////////////////////////////////////////////////////
+            
+            await transformService.TransformSeasonsAsync(context);
+            _logger.LogInformationWithColor("Transformation des saisons terminée", ConsoleColor.Green);
 
-            await transformService.TransformSeasonsAsync();
-            _logger.LogInformation("Transformation des saisons terminée");
+            await transformService.TransformTeamsAsync(context);
+            _logger.LogInformationWithColor("Transformation des équipes terminée", ConsoleColor.Green);
 
-            await transformService.TransformTeamsAsync();
-            _logger.LogInformation("Transformation des équipes terminée");    
+            await transformService.TransformPlayersAsync(context);
+            _logger.LogInformationWithColor("Transformation des joueurs terminée", ConsoleColor.Green);
 
-            await transformService.TransformPlayersAsync();
-            _logger.LogInformation("Transformation des joueurs terminée");
+            await transformService.TransformRostersAsync(context);
+            _logger.LogInformationWithColor("Transformation des rosters terminée", ConsoleColor.Green);
 
-            await transformService.TransformRostersAsync();
-            _logger.LogInformation("Transformation des rosters terminée");
 
+
+
+            // Log the end of the worker and record the end time
+            context.FinishedAt = DateTime.Now;
+
+            if (context.TotalImportErrors == 0 && context.TotalTransformErrors == 0)
+            {
+                _logger.LogInformationWithColor(
+                    "Importations et Transformations se sont terminé avec succès à {FinishedAt}. Durée: {Duration}", 
+                    ConsoleColor.Green, 
+                    context.FinishedAt, 
+                    context.Duration);
+            }
+            else
+            {
+                _logger.LogInformationWithColor(
+                    "Importations et Transformations se sont terminé avec {TotalImportErrors} erreur(s) d'importation et {TotalTransformErrors} erreur(s) de transformation, à {FinishedAt}. Durée: {Duration}", 
+                    ConsoleColor.Yellow, 
+                    context.TotalImportErrors, 
+                    context.TotalTransformErrors, 
+                    context.FinishedAt, 
+                    context.Duration);
+            }
         }
     }
 }
+

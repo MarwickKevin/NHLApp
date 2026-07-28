@@ -8,16 +8,19 @@ namespace NHLApp.Application.Contexts
 {
     public class WorkerContext
     {
-        public DateTime StartedAt { get; } = DateTime.UtcNow;
+        public DateTime StartedAt { get; set; } = DateTime.UtcNow;  //
 
-        public DateTime? FinishedAt { get; set; }
+        public DateTime? FinishedAt { get; set; } //
 
-        public int TotalApiCalls { get; set; }
+        public int TotalApiCalls { get; set; } //
 
-        public int ApiCallsErrors { get; set; }
+        public int TotalImportErrors { get; set; } = 0; // 
+
+        public int TotalTransformErrors { get; set; } = 0; 
+
+        public TimeSpan Duration => (FinishedAt ?? DateTime.UtcNow) - StartedAt; 
 
         public HashSet<int> PlayerIds { get; } = new();
 
-        public TimeSpan Duration => (FinishedAt ?? DateTime.UtcNow) - StartedAt;
     }
 }

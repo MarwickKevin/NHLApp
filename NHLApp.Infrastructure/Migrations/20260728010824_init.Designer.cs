@@ -12,8 +12,8 @@ using NHLApp.Infrastructure.Data;
 namespace NHLApp.Infrastructure.Migrations
 {
     [DbContext(typeof(NHLAppDbContext))]
-    [Migration("20260726222051_snapshot")]
-    partial class snapshot
+    [Migration("20260728010824_init")]
+    partial class init
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
