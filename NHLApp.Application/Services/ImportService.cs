@@ -24,7 +24,7 @@ namespace NHLApp.Application.Services
         private readonly RawDataStore _rawDataStore;
 
         // Constants for API throttling to avoid hitting the NHL API too quickly
-        private const int ApiThrottlingDelay = 150;
+        private const int ApiThrottlingDelay = 50;
 
         public ImportService(INHLApiClient nhlClient, NHLAppDbContext db, ILogger<ImportService> logger, RawDataStore rawDataStore)
         {
@@ -74,11 +74,11 @@ namespace NHLApp.Application.Services
             {
                 context.TotalImportErrors++;
                 _logger.LogErrorWithColor(
-                    "Cannot process because raw team data has not been imported yet. Total import errors: {TotalErrors}", 
-                    ConsoleColor.Red, 
+                    "Cannot process because raw team data has not been imported yet. Total import errors: {TotalErrors}",
+                    ConsoleColor.Red,
                     context.TotalImportErrors);
                 return;
-            }               
+            }
 
             await ProcessCollectionImportAsync(
                 context,
@@ -105,7 +105,7 @@ namespace NHLApp.Application.Services
                     context.TotalImportErrors);
                 return;
             }
-            
+
             var allRosterSeasons = _db.RawApiResponses
                 .Where(r => r.Endpoint == "roster-seasons")
                 .ToDictionary(r => r.EntityId, r => r.ResponseJson);
@@ -122,9 +122,9 @@ namespace NHLApp.Application.Services
                 {
                     context.TotalImportErrors++;
                     _logger.LogErrorWithColor(
-                        "Failed to import roster seasons for team {TriCode}. Total import errors: {TotalErrors}", 
-                        ConsoleColor.Red, 
-                        triCode, 
+                        "Failed to import roster seasons for team {TriCode}. Total import errors: {TotalErrors}",
+                        ConsoleColor.Red,
+                        triCode,
                         context.TotalImportErrors);
                     continue;
                 }
@@ -137,12 +137,31 @@ namespace NHLApp.Application.Services
                     entityIdSelector: seasonId => $"{triCode}-{seasonId}",
                     fetchApiAsync: seasonId => _nhlClient.GetTeamRosterAsync(triCode, seasonId));
             }
+
+            // ------------- Populate context.PlayerIds to use in ImportPlayerLandings ----------- //            
+            PopulatePlayerIdsFromRosters(context);
         }
 
-        public async Task ImportPlayerLandings(WorkerContext context)
+        /// <summary>
+        /// Imports the player landing pages for each collected player ID from the NHL API and stores them in the database.
+        /// </summary>
+        /// <returns></returns>
+        public async Task ImportPlayerLandingsAsync(WorkerContext context)
         {
-            // Import playerIds from context
-            // Go through each playerId and fetch the landing page data from the NHL API
+            if (!context.PlayerIds.Any())
+            {
+                _logger.LogInformationWithColor("No player IDs found in context to import player landings.", ConsoleColor.Yellow);
+                return;
+            }
+
+            _logger.LogInformationWithColor("Starting import of player landings for {Count} unique players...", ConsoleColor.Cyan, context.PlayerIds.Count);
+
+            await ProcessCollectionImportAsync(
+                context,
+                items: context.PlayerIds,
+                endpoint: "player-landing",
+                entityIdSelector: playerId => playerId.ToString(),
+                fetchApiAsync: playerId => _nhlClient.GetPlayerLandingAsync(playerId));
         }
         #endregion
 
@@ -165,7 +184,7 @@ namespace NHLApp.Application.Services
             {
                 _logger.LogInformationWithColor("{Key} is fresh, skipping import.", ConsoleColor.DarkGreen, key);
                 return;
-            }                
+            }
 
             try
             {
@@ -179,10 +198,10 @@ namespace NHLApp.Application.Services
             catch (Exception ex)
             {
                 context.TotalImportErrors++;
-                _logger.LogErrorWithColor(ex, "Failed to import endpoint {Endpoint} for entity {EntityId}. Total import errors: {TotalErrors}", 
-                    ConsoleColor.Red, 
-                    endpoint, 
-                    entityId, 
+                _logger.LogErrorWithColor(ex, "Failed to import endpoint {Endpoint} for entity {EntityId}. Total import errors: {TotalErrors}",
+                    ConsoleColor.Red,
+                    endpoint,
+                    entityId,
                     context.TotalImportErrors);
             }
         }
@@ -207,7 +226,7 @@ namespace NHLApp.Application.Services
             {
                 var entityId = entityIdSelector(item);
                 var key = $"{endpoint}-{entityId}";
-                                
+
                 existingRecords.TryGetValue(key, out var fetchedAt);
 
                 if (IsFresh(fetchedAt))
@@ -215,7 +234,7 @@ namespace NHLApp.Application.Services
                     _logger.LogInformationWithColor("{Key} is fresh, skipping import.", ConsoleColor.DarkGreen, key);
                     continue;
                 }
-                    
+
 
                 try
                 {
@@ -231,11 +250,11 @@ namespace NHLApp.Application.Services
                 catch (Exception ex)
                 {
                     context.TotalImportErrors++;
-                    _logger.LogErrorWithColor(ex, 
-                        "Failed to import endpoint {Endpoint} for entity {EntityId}. Total import errors: {TotalErrors}", 
-                        ConsoleColor.Red, 
-                        endpoint, 
-                        entityId, 
+                    _logger.LogErrorWithColor(ex,
+                        "Failed to import endpoint {Endpoint} for entity {EntityId}. Total import errors: {TotalErrors}",
+                        ConsoleColor.Red,
+                        endpoint,
+                        entityId,
                         context.TotalImportErrors);
                 }
             }
@@ -262,13 +281,13 @@ namespace NHLApp.Application.Services
         {
             var teamRaw = _db.RawApiResponses.FirstOrDefault(r => r.Endpoint == "team");
             if (teamRaw == null || string.IsNullOrWhiteSpace(teamRaw.ResponseJson))
-            {               
+            {
                 return new List<string>();
             }
 
             // if the raw team data cannot be deserialized into the expected DTO, log an error and return an empty list
-            if (!teamRaw.ResponseJson.TryDeserializeSafe<NhlTeamRootDTO>( out var root, out _) || root?.Data == null)
-            {                
+            if (!teamRaw.ResponseJson.TryDeserializeSafe<NhlTeamRootDTO>(out var root, out _) || root?.Data == null)
+            {
                 return new List<string>();
             }
 
@@ -277,6 +296,40 @@ namespace NHLApp.Application.Services
                 .Select(t => t.TriCode)
                 .Distinct()
                 .ToList();
+        }
+
+        /// <summary>
+        /// Extracts unique player IDs from roster JSON responses and adds them to the provided WorkerContext.
+        /// </summary>
+        /// <param name="context">The WorkerContext instance to which the player IDs will be added.</param>
+        private void PopulatePlayerIdsFromRosters(WorkerContext context)
+        {
+            var rosterJsons = _db.RawApiResponses
+                .Where(r => r.Endpoint == "roster")
+                .Select(r => r.ResponseJson)
+                .ToList();
+
+            foreach (var json in rosterJsons)
+            {
+                if (string.IsNullOrWhiteSpace(json)) continue;
+
+                if (json.TryDeserializeSafe<NhlRosterRootDTO>(out var rosterRoot, out _) && rosterRoot != null)
+                {
+                    // On combine Forwards, Defensemen et Goalies (en gérant les nuls potentiels)
+                    var allPlayers = new List<NhlPlayerDTO>();
+
+                    if (rosterRoot.Forwards != null) allPlayers.AddRange(rosterRoot.Forwards);
+                    if (rosterRoot.Defensemen != null) allPlayers.AddRange(rosterRoot.Defensemen);
+                    if (rosterRoot.Goalies != null) allPlayers.AddRange(rosterRoot.Goalies);
+
+                    foreach (var player in allPlayers)
+                    {
+                        context.PlayerIds.Add(player.Id);
+                    }
+                }
+            }
+
+            _logger.LogInformationWithColor("Extracted {Count} unique player IDs into WorkerContext.", ConsoleColor.Green, context.PlayerIds.Count);
         }
         #endregion
     }

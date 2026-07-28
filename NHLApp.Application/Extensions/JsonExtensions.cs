@@ -17,7 +17,7 @@ namespace NHLApp.Application.Extensions
         };
 
         /// <summary>
-        /// Attempts to deserialize a JSON string into an object of type T. If deserialization fails, logs the error and returns false.
+        /// Attempts to deserialize a JSON string into an object of type T. Returns false if deserialization fails. 
         /// </summary>
         public static bool TryDeserializeSafe<T>(
             this string? json,

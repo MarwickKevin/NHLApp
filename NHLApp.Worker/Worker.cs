@@ -48,6 +48,9 @@ namespace NHLApp.Worker
             await importService.ImportRostersAsync(context);
             _logger.LogInformationWithColor("Import des rosters terminé", ConsoleColor.Green);
 
+            await importService.ImportPlayerLandingsAsync(context);
+            _logger.LogInformationWithColor("Import des player landings terminé", ConsoleColor.Green);
+
 
                         
             //////////////////////////////////////////////////////////////////
