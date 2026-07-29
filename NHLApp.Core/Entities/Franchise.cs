@@ -9,8 +9,8 @@ namespace NHLApp.Domain.Entities
     public class Franchise
     {
         public int FranchiseId { get; set; }
-        public string Name { get; set; } = string.Empty;
+        public string? Name { get; set; } = string.Empty;
 
-        public ICollection<Team> Teams { get; set; } = new List<Team>();
+        public ICollection<Team> Teams { get; set; } = new HashSet<Team>();
     }
 }

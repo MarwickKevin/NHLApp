@@ -6,15 +6,14 @@ using System.Threading.Tasks;
 
 namespace NHLApp.Domain.Entities
 {
-    public class TeamRosters
+    public class PlayerAwards
     {
-        public int TeamId { get; set; }
         public int PlayerId { get; set; }
+        public int TrophyId { get; set; }
         public int SeasonId { get; set; }
 
-        public Team Team { get; set; } = null!;
         public Player Player { get; set; } = null!;
-
-        
+        public Trophy Trophy { get; set; } = null!;
+        public Season Season { get; set; } = null!;
     }
 }

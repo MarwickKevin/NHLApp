@@ -69,6 +69,9 @@ namespace NHLApp.Worker
             await transformService.TransformRostersAsync(context);
             _logger.LogInformationWithColor("Transformation des rosters terminée", ConsoleColor.Green);
 
+            await transformService.TransformPlayerLandingsAsync(context);
+            _logger.LogInformationWithColor("Transformation des player landings terminé", ConsoleColor.Green);
+
 
 
 

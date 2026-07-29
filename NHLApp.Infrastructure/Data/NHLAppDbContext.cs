@@ -20,6 +20,10 @@ namespace NHLApp.Infrastructure.Data
         public DbSet<Player> Players { get; set; }
         public DbSet<RawApiResponse> RawApiResponses { get; set; }
         public DbSet<TeamRosters> TeamRosters { get; set; }
+        public DbSet<Trophy> Trophies { get; set; }
+        public DbSet<DraftDetail> DraftDetail { get; set; }
+        public DbSet<PlayerAwards> PlayerAwards { get; set; }
+        public DbSet<SeasonTotal> SeasonTotals { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -79,6 +83,29 @@ namespace NHLApp.Infrastructure.Data
                 .HasOne(tr => tr.Player)
                 .WithMany()
                 .HasForeignKey(tr => tr.PlayerId);
+
+            modelBuilder.Entity<DraftDetail>()
+                .HasKey(d => d.PlayerId);
+            
+            modelBuilder.Entity<PlayerAwards>()
+                .HasKey(pa => new { pa.PlayerId, pa.TrophyId, pa.SeasonId });
+            
+            modelBuilder.Entity<PlayerAwards>()
+                .HasOne(pa => pa.Player)
+                .WithMany(p => p.PlayerAwards)
+                .HasForeignKey(pa => pa.PlayerId);
+
+            modelBuilder.Entity<PlayerAwards>()
+                .HasOne(pa => pa.Trophy)
+                .WithMany(t => t.Awards)
+                .HasForeignKey(pa => pa.TrophyId);
+
+            modelBuilder.Entity<PlayerAwards>()
+                .HasOne(pa => pa.Season)
+                .WithMany(s => s.Awards)
+                .HasForeignKey(pa => pa.SeasonId);
+
+
         }
     }
 }

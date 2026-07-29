@@ -6,11 +6,10 @@ using System.Threading.Tasks;
 
 namespace NHLApp.Domain.Entities
 {
-    public class Season
+    public class Trophy
     {
-        public int SeasonId { get; set; }
-        public int? StartYear { get; set; }
-        public int? EndYear { get; set; }
+        public int Id { get; set; }
+        public string Name { get; set; } = "Trophy";
 
         public ICollection<PlayerAwards> Awards { get; set; } = new HashSet<PlayerAwards>();
     }

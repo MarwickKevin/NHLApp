@@ -35,9 +35,6 @@ namespace NHLApp.Application.DTOs
         [property: JsonPropertyName("birthStateProvince")] NhlLocalizedTextDTO? BirthStateProvince
     );
 
-    // Reusable DTO for the NHL API localized text objects (e.g., {"default": "Montreal"})
-    public record NhlLocalizedTextDTO(
-        [property: JsonPropertyName("_default")] string Default
-    );
+    
 }
 

@@ -24,7 +24,7 @@ namespace NHLApp.Application.Services
         private readonly RawDataStore _rawDataStore;
 
         // Constants for API throttling to avoid hitting the NHL API too quickly
-        private const int ApiThrottlingDelay = 50;
+        private const int ApiThrottlingDelay = 100;
 
         public ImportService(INHLApiClient nhlClient, NHLAppDbContext db, ILogger<ImportService> logger, RawDataStore rawDataStore)
         {

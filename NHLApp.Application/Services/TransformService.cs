@@ -6,6 +6,7 @@ using NHLApp.Application.Extensions;
 using NHLApp.Domain.Entities;
 using NHLApp.Infrastructure.Data;
 using System.Linq.Expressions;
+using System.Numerics;
 
 namespace NHLApp.Application.Services
 {
@@ -169,7 +170,7 @@ namespace NHLApp.Application.Services
 
             var rawRecords = await _db.RawApiResponses.Where(r => r.Endpoint == "roster").ToListAsync();
 
-            
+
             await ProcessBatchAsync(context, rawRecords, "TransformRosters", async raw =>
             {
                 // Skip if the EntityId is not in the expected format ("roster-TEAMCODE-SEASONID")
@@ -178,9 +179,9 @@ namespace NHLApp.Application.Services
                 {
                     context.TotalTransformErrors++;
                     _logger.LogErrorWithColor(
-                        "TransformRosters skipping: Invalid EntityId format for team roster response: {EntityId}. Total transform errors: {TotalErrors}", 
-                        ConsoleColor.Red, 
-                        raw.EntityId, 
+                        "TransformRosters skipping: Invalid EntityId format for team roster response: {EntityId}. Total transform errors: {TotalErrors}",
+                        ConsoleColor.Red,
+                        raw.EntityId,
                         context.TotalTransformErrors);
                     return false;
                 }
@@ -190,9 +191,9 @@ namespace NHLApp.Application.Services
                 {
                     context.TotalTransformErrors++;
                     _logger.LogErrorWithColor(
-                        "TransformRosters skipping: Failed to parse season ID from EntityId format: {EntityId}. Total transform errors: {TotalErrors}", 
-                        ConsoleColor.Red, 
-                        raw.EntityId, 
+                        "TransformRosters skipping: Failed to parse season ID from EntityId format: {EntityId}. Total transform errors: {TotalErrors}",
+                        ConsoleColor.Red,
+                        raw.EntityId,
                         context.TotalTransformErrors);
                     return false;
                 }
@@ -202,9 +203,9 @@ namespace NHLApp.Application.Services
                 {
                     context.TotalTransformErrors++;
                     _logger.LogErrorWithColor(
-                        "TransformRosters skipping: Team or season not found for EntityId: {EntityId}. Total transform errors: {TotalErrors}", 
-                        ConsoleColor.Red, 
-                        raw.EntityId, 
+                        "TransformRosters skipping: Team or season not found for EntityId: {EntityId}. Total transform errors: {TotalErrors}",
+                        ConsoleColor.Red,
+                        raw.EntityId,
                         context.TotalTransformErrors);
                     return false;
                 }
@@ -214,9 +215,9 @@ namespace NHLApp.Application.Services
                 {
                     context.TotalTransformErrors++;
                     _logger.LogErrorWithColor(
-                        "TransformRosters skipping: Failed to deserialize roster data for EntityId: {EntityId}. Total transform errors: {TotalErrors}", 
-                        ConsoleColor.Red, 
-                        raw.EntityId, 
+                        "TransformRosters skipping: Failed to deserialize roster data for EntityId: {EntityId}. Total transform errors: {TotalErrors}",
+                        ConsoleColor.Red,
+                        raw.EntityId,
                         context.TotalTransformErrors);
                     return false;
                 }
@@ -265,6 +266,161 @@ namespace NHLApp.Application.Services
             });
         }
 
+        /// <summary>
+        /// Transforms raw player landing JSON payloads into structured complex entities (Drafts, Season Totals, etc.) in the database.
+        /// </summary>
+        /// <returns></returns>
+        public async Task TransformPlayerLandingsAsync(WorkerContext context)
+        {
+            HashSet<int> validPlayerIds = await GetKnownKeysAsync<Player, int>(p => p.PlayerId);
+
+            await ProcessEndpointAsync<NhlPlayerLandingDTO>(
+                context,
+                endpoint: "player-landing",
+                operationName: "TransformPlayerLandings",
+                processRootAsync: landing =>
+                {
+                    bool itemChanges = false;
+                    var player = _db.Players
+                        .Include(p => p.DraftDetail)
+                        .Include(p => p.SeasonTotal)
+                        .Include(p => p.PlayerAwards)
+                        .FirstOrDefault(p => p.PlayerId == landing.PlayerId);
+
+                   
+                    if (player != null)
+                    {                        
+                        player.Headshot = landing.Headshot;
+                        player.SweaterNumber = landing.SweaterNumber;
+                        player.Position = landing.Position;
+                        player.ShootsCatches = landing.ShootsCatches;
+
+                        DateOnly? birthDate = null;
+                        if (!string.IsNullOrEmpty(landing.BirthDate) && DateOnly.TryParse(landing.BirthDate, out var parsedDate))
+                        {
+                            birthDate = parsedDate;
+                        }
+
+                        player.BirthDate = birthDate;
+                        player.BirthCity = landing.BirthCity?.Default;
+                        player.BirthStateProvince = landing.BirthStateProvince?.Default;
+                        player.BirthCountry = landing.BirthCountry;
+
+                        player.HeightInCentimeters = landing.HeightInCentimeters;
+                        player.HeightInInches = landing.HeightInInches;
+                        player.WeightInKilograms = landing.WeightInKilograms;
+                        player.WeightInPounds = landing.WeightInPounds;
+
+                        player.IsActive = landing.IsActive;
+                        player.CurrentTeamId = landing.CurrentTeamId;
+                        player.CurrentTeamAbbrev = landing.CurrentTeamAbbrev;
+                        player.FullTeamName = landing.FullTeamName?.Default;
+                        player.TeamCommonName = landing.TeamCommonName?.Default;
+                        player.TeamPlaceNameWithPreposition = landing.TeamPlaceNameWithPreposition?.Default;
+                        player.TeamLogo = landing.TeamLogo;
+
+                        player.HeroImage = landing.HeroImage;
+                        player.PlayerSlug = landing.PlayerSlug;
+
+                        // 1. Map Draft Details (1-to-0..1 relationship)
+                        if (landing.DraftDetails != null && player.DraftDetail == null)
+                        {
+                            player.DraftDetail = new DraftDetail
+                            {
+                                PlayerId = landing.PlayerId,
+
+                                Year = landing.DraftDetails.Year,
+                                TeamAbbrev = landing.DraftDetails.TeamAbbrev,
+                                Round = landing.DraftDetails.Round,
+                                PickInRound = landing.DraftDetails.PickInRound,
+                                OverallPick = landing.DraftDetails.OverallPick
+                            };
+                        }
+
+                        // 2. Map Season Totals (1-to-Many relationship)
+                        if (landing.SeasonTotals != null && landing.SeasonTotals.Any())
+                        {
+                            foreach (var seasonDto in landing.SeasonTotals)
+                            {
+                                bool exists = player.SeasonTotal.Any(st => st.Season == seasonDto.Season && st.Sequence == seasonDto.Sequence && st.GameTypeId == seasonDto.GameTypeId);
+                                if (exists) continue;
+
+                                var seasonTotalEntity = new SeasonTotal
+                                {
+                                    PlayerId = landing.PlayerId,
+
+                                    Assists = seasonDto.Assists,
+                                    GameTypeId = seasonDto.GameTypeId,
+                                    GamesPlayed = seasonDto.GamesPlayed,
+                                    Goals = seasonDto.Goals,
+                                    LeagueAbbrev = seasonDto.LeagueAbbrev,
+                                    Pim = seasonDto.Pim,
+                                    Points = seasonDto.Points,
+                                    Season = seasonDto.Season,
+                                    Sequence = seasonDto.Sequence,
+                                    TeamName = seasonDto.TeamName?.Default,
+                                    GameWinningGoals = seasonDto.GameWinningGoals,
+                                    PlusMinus = seasonDto.PlusMinus,
+                                    PowerPlayGoals = seasonDto.PowerPlayGoals,
+                                    ShorthandedGoals = seasonDto.ShorthandedGoals,
+                                    Shots = seasonDto.Shots,
+                                    TeamCommonName = seasonDto.TeamCommonName?.Default,
+                                    TeamPlaceNameWithPreposition = seasonDto.TeamPlaceNameWithPreposition?.Default,
+                                    AvgToi = seasonDto.AvgToi ?? string.Empty,
+                                    FaceoffWinningPctg = seasonDto.FaceoffWinningPctg,
+                                    OtGoals = seasonDto.OtGoals,
+                                    PowerPlayPoints = seasonDto.PowerPlayPoints,
+                                    ShootingPctg = seasonDto.ShootingPctg,
+                                    ShorthandedPoints = seasonDto.ShorthandedPoints
+                                };
+
+                                player.SeasonTotal.Add(seasonTotalEntity);
+                            }
+                        }
+
+                        // 3. Map Awards (1-to-Many relationship)
+                        if (landing.Awards != null && landing.Awards.Any())
+                        {
+                            foreach (var awardDto in landing.Awards)
+                            {
+                                if (awardDto.Seasons == null) continue;
+
+                                string trophyName = awardDto.Trophy?.Default ?? string.Empty;
+                                if (string.IsNullOrWhiteSpace(trophyName)) continue;
+
+                                var trophy = _db.Trophies.Local.FirstOrDefault(t => t.Name.Equals(trophyName, StringComparison.OrdinalIgnoreCase))
+                                             ?? _db.Trophies.FirstOrDefault(t => t.Name == trophyName);
+
+                                if (trophy == null)
+                                {
+                                    trophy = new Trophy { Name = trophyName };
+                                    _db.Trophies.Add(trophy);
+                                }
+
+                                foreach (var seasonDto in awardDto.Seasons)
+                                {
+                                    bool exists = player.PlayerAwards.Any(pa => pa.SeasonId == seasonDto.SeasonId && pa.TrophyId == trophy.Id);
+                                    if (exists) continue;
+
+                                    var awardEntity = new PlayerAwards
+                                    {
+                                        PlayerId = landing.PlayerId,
+                                        SeasonId = seasonDto.SeasonId,
+                                        Trophy = trophy 
+                                    };
+
+                                    player.PlayerAwards.Add(awardEntity);
+                                }
+                            }
+                        }
+
+                        itemChanges = true;
+                    }
+
+                    return Task.FromResult(itemChanges);
+                });
+        }
+
         #endregion
 
         #region TRANSFORM PROCESSING ENGINES
@@ -300,10 +456,10 @@ namespace NHLApp.Application.Services
                 {
                     context.TotalTransformErrors++;
                     _logger.LogErrorWithColor(
-                        ex, 
-                        "Failed to transform '{EndpointName}' payload. Total transform errors: {TotalErrors}", 
-                        ConsoleColor.Red, 
-                        endpointName, 
+                        ex,
+                        "Failed to transform '{EndpointName}' payload. Total transform errors: {TotalErrors}",
+                        ConsoleColor.Red,
+                        endpointName,
                         context.TotalTransformErrors);
                 }
                 finally
@@ -337,12 +493,12 @@ namespace NHLApp.Application.Services
             {
                 // If the root deserialization fails, skip processing this record
                 if (!TryDeserializeRawResponse<TRoot>(raw, operationName, out var root) || root == null)
-                {                   
+                {
                     _logger.LogErrorWithColor(
-                        "{OperationName} skipping: Failed to deserialize root payload for EntityId '{EntityId}'. Total transform errors: {TotalErrors}", 
-                        ConsoleColor.Red, 
-                        operationName, 
-                        raw.EntityId, 
+                        "{OperationName} skipping: Failed to deserialize root payload for EntityId '{EntityId}'. Total transform errors: {TotalErrors}",
+                        ConsoleColor.Red,
+                        operationName,
+                        raw.EntityId,
                         context.TotalTransformErrors);
                     return false;
                 }
@@ -371,10 +527,10 @@ namespace NHLApp.Application.Services
                 {
                     context.TotalTransformErrors++;
                     _logger.LogErrorWithColor(
-                        "{OperationName} skipping: Failed to deserialize root payload for EntityId '{EntityId}'. Total transform errors: {TotalErrors}", 
-                        ConsoleColor.Red, 
-                        operationName, 
-                        raw.EntityId, 
+                        "{OperationName} skipping: Failed to deserialize root payload for EntityId '{EntityId}'. Total transform errors: {TotalErrors}",
+                        ConsoleColor.Red,
+                        operationName,
+                        raw.EntityId,
                         context.TotalTransformErrors);
                     return false;
                 }
@@ -434,7 +590,7 @@ namespace NHLApp.Application.Services
 
                     var entity = mapEntity(item);
                     dbSet.Add(entity);
-                    return Task.FromResult(true); 
+                    return Task.FromResult(true);
                 });
         }
 
@@ -459,9 +615,9 @@ namespace NHLApp.Application.Services
                 {
                     context.TotalTransformErrors++;
                     _logger.LogErrorWithColor(
-                        "TransformTeams skipping: Invalid EntityId format for roster-seasons response: '{EntityId}'. Total transform errors: {TotalErrors}", 
-                        ConsoleColor.Red, 
-                        rRaw.EntityId, 
+                        "TransformTeams skipping: Invalid EntityId format for roster-seasons response: '{EntityId}'. Total transform errors: {TotalErrors}",
+                        ConsoleColor.Red,
+                        rRaw.EntityId,
                         context.TotalTransformErrors);
                     continue;
                 }
@@ -472,9 +628,9 @@ namespace NHLApp.Application.Services
                 {
                     context.TotalTransformErrors++;
                     _logger.LogErrorWithColor(
-                        "TransformTeams skipping: Failed to deserialize roster-seasons for EntityId '{EntityId}'. Total transform errors: {TotalErrors}", 
-                        ConsoleColor.Red, 
-                        rRaw.EntityId, 
+                        "TransformTeams skipping: Failed to deserialize roster-seasons for EntityId '{EntityId}'. Total transform errors: {TotalErrors}",
+                        ConsoleColor.Red,
+                        rRaw.EntityId,
                         context.TotalTransformErrors);
                     continue;
                 }
