@@ -163,6 +163,79 @@ namespace NHLApp.Application.Services
                 entityIdSelector: playerId => playerId.ToString(),
                 fetchApiAsync: playerId => _nhlClient.GetPlayerLandingAsync(playerId));
         }
+
+        /// <summary>
+        /// Imports the club schedule for each team and each of their seasons from the NHL API and stores them in the database.
+        /// </summary>
+        /// <returns></returns>
+        public async Task ImportSchedulesAsync(WorkerContext context)
+        {
+            var triCodes = GetValidTeamTriCodes(context);
+            if (!triCodes.Any())
+            {
+                context.TotalImportErrors++;
+                _logger.LogErrorWithColor(
+                    "Cannot process club schedules because raw team data has not been imported yet. Total import errors: {TotalErrors}",
+                    ConsoleColor.Red,
+                    context.TotalImportErrors);
+                return;
+            }
+
+            var allRosterSeasons = _db.RawApiResponses
+                .Where(r => r.Endpoint == "roster-seasons")
+                .ToDictionary(r => r.EntityId, r => r.ResponseJson);
+
+            foreach (var triCode in triCodes)
+            {
+                var key = $"roster-seasons-{triCode}";
+
+                if (!allRosterSeasons.TryGetValue(key, out var responseJson) ||
+                    !responseJson.TryDeserializeSafe<List<int>>(out var seasonIds, out _) ||
+                    seasonIds == null)
+                {
+                    continue;
+                }
+
+                foreach (var seasonId in seasonIds)
+                {
+                    // Convertit l'ID de saison (ex: 20232024) en liste de mois (ex: "2023-10", "2023-11", ..., "2024-04")
+                    var yearMonths = GenerateSeasonMonths(seasonId);
+
+                    await ProcessCollectionImportAsync(
+                        context,
+                        items: yearMonths,
+                        endpoint: "club-schedule",
+                        entityIdSelector: yearMonth => $"{triCode}-{yearMonth}",
+                        fetchApiAsync: yearMonth => _nhlClient.GetClubScheduleAsync(triCode, yearMonth));
+                }
+            }
+        }
+
+        private List<string> GenerateSeasonMonths(int seasonId)
+        {
+            // seasonId format typique: 20232024 -> startYear = 2023, endYear = 2024
+            var seasonStr = seasonId.ToString();
+            if (seasonStr.Length != 8) return new List<string>();
+
+            int startYear = int.Parse(seasonStr.Substring(0, 4));
+            int endYear = int.Parse(seasonStr.Substring(4, 4));
+
+            var months = new List<string>();
+
+            // Mois de la saison régulière et séries (Octobre à Avril/Juin)
+            // Octobre à Décembre de l'année de début
+            for (int m = 10; m <= 12; m++)
+            {
+                months.Add($"{startYear}-{m:D2}");
+            }
+            // Janvier à Juin de l'année de fin
+            for (int m = 1; m <= 6; m++)
+            {
+                months.Add($"{endYear}-{m:D2}");
+            }
+
+            return months;
+        }
         #endregion
 
         #region Import Processing Engines

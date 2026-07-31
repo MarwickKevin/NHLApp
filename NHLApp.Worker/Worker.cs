@@ -50,12 +50,14 @@ namespace NHLApp.Worker
             await importService.ImportPlayerLandingsAsync(context);
             _logger.LogInformationWithColor("Import des player landings terminé", ConsoleColor.Green);
 
+            await importService.ImportSchedulesAsync(context);
+            _logger.LogInformationWithColor("Import des cédule terminé", ConsoleColor.Green);
 
-                        
+
             //////////////////////////////////////////////////////////////////
             // Transform data from the database into the application models //
             //////////////////////////////////////////////////////////////////
-            
+
             await transformService.TransformSeasonsAsync(context);
             _logger.LogInformationWithColor("Transformation des saisons terminée", ConsoleColor.Green);
 
