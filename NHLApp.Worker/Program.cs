@@ -27,6 +27,15 @@ builder.Services.AddScoped<RawDataStore>();
 
 builder.Services.AddScoped<WorkerContext>();
 
+builder.Logging.ClearProviders();
+builder.Logging.AddConsole();
+
+// 1. Définir le niveau global par défaut à Warning (masque HttpClient, EF Core, etc.)
+builder.Logging.SetMinimumLevel(LogLevel.Warning);
+
+// 2. Réactiver explicitement le niveau Information uniquement pour votre application
+builder.Logging.AddFilter("NHLApp", LogLevel.Information);
+
 var host = builder.Build();
 
 // Automatically apply migrations and create the DB if it doesn't exist
