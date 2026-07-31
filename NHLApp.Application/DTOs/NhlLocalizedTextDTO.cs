@@ -9,7 +9,7 @@ namespace NHLApp.Application.DTOs
 {
     // Reusable DTO for the NHL API localized text objects (e.g., {"default": "Montreal"})
     public record NhlLocalizedTextDTO(
-        [property: JsonPropertyName("_default")] string Default
+        [property: JsonPropertyName("default")] string Default
     );
 
 }

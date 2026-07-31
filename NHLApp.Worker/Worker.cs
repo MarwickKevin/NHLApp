@@ -28,7 +28,6 @@ namespace NHLApp.Worker
             // Log the start of the worker and record the start time
             _logger.LogInformationWithColor("Worker NHLApp démarré", ConsoleColor.Green);
             context.StartedAt = DateTime.Now;
-
             
 
             
@@ -71,7 +70,6 @@ namespace NHLApp.Worker
 
             await transformService.TransformPlayerLandingsAsync(context);
             _logger.LogInformationWithColor("Transformation des player landings terminé", ConsoleColor.Green);
-
 
 
 

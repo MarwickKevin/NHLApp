@@ -117,7 +117,7 @@ namespace NHLApp.Application.Services
         }
 
         /// <summary>
-        /// Transforms raw player JSON payloads into structured Player entities in the database, extracting relevant player information.
+        /// Transforms raw player JSON payloads into basic Player entities in the database, extracting only their full name and PlayerId.
         /// </summary>
         /// <returns></returns>
         public async Task TransformPlayersAsync(WorkerContext context)
@@ -134,19 +134,7 @@ namespace NHLApp.Application.Services
                 {
                     PlayerId = playerDto.Id,
                     FirstName = playerDto.FirstName?.Default ?? string.Empty,
-                    LastName = playerDto.LastName?.Default ?? string.Empty,
-                    Position = playerDto.PositionCode,
-                    ShootsCatches = playerDto.ShootsCatches ?? string.Empty,
-                    HeightInCentimeters = playerDto.HeightInCentimeters,
-                    WeightInKilograms = playerDto.WeightInKilograms,
-                    BirthDate = playerDto.BirthDate != null ? DateOnly.Parse(playerDto.BirthDate) : null,
-                    BirthCity = playerDto.BirthCity?.Default,
-                    BirthCountry = playerDto.BirthCountry,
-                    SweaterNumber = playerDto.SweaterNumber,
-                    HeightInInches = playerDto.HeightInInches,
-                    WeightInPounds = playerDto.WeightInPounds,
-                    Headshot = playerDto.Headshot,
-                    BirthStateProvince = playerDto.BirthStateProvince?.Default
+                    LastName = playerDto.LastName?.Default ?? string.Empty
                 },
                 dbSet: _db.Players);
         }
@@ -287,9 +275,9 @@ namespace NHLApp.Application.Services
                         .Include(p => p.PlayerAwards)
                         .FirstOrDefault(p => p.PlayerId == landing.PlayerId);
 
-                   
+
                     if (player != null)
-                    {                        
+                    {
                         player.Headshot = landing.Headshot;
                         player.SweaterNumber = landing.SweaterNumber;
                         player.Position = landing.Position;
@@ -406,7 +394,7 @@ namespace NHLApp.Application.Services
                                     {
                                         PlayerId = landing.PlayerId,
                                         SeasonId = seasonDto.SeasonId,
-                                        Trophy = trophy 
+                                        Trophy = trophy
                                     };
 
                                     player.PlayerAwards.Add(awardEntity);
