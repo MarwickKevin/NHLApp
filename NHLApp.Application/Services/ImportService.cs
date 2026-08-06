@@ -167,7 +167,7 @@ namespace NHLApp.Application.Services
         /// <summary>
         /// Imports the global NHL schedule week by week for all season IDs found in the raw database (from 1917 onwards).
         /// </summary>
-        public async Task ImportSchedulesAsync(WorkerContext context)
+        public async Task ImportWeeklySchedulesAsync(WorkerContext context)
         {
             var seasonRaw = _db.RawApiResponses.FirstOrDefault(r => r.Endpoint == "season");
             if (seasonRaw == null || string.IsNullOrWhiteSpace(seasonRaw.ResponseJson))
@@ -200,7 +200,7 @@ namespace NHLApp.Application.Services
                     items: weeklyDates,
                     endpoint: "schedule",
                     entityIdSelector: dateStr => $"{season.SeasonId}-{dateStr}",
-                    fetchApiAsync: dateStr => _nhlClient.GetScheduleAsync(dateStr));
+                    fetchApiAsync: dateStr => _nhlClient.GetWeeklyScheduleAsync(dateStr));
             }
         }
 
@@ -356,7 +356,6 @@ namespace NHLApp.Application.Services
 
                 if (json.TryDeserializeSafe<NhlRosterRootDTO>(out var rosterRoot, out _) && rosterRoot != null)
                 {
-                    // On combine Forwards, Defensemen et Goalies (en gérant les nuls potentiels)
                     var allPlayers = new List<NhlPlayerDTO>();
 
                     if (rosterRoot.Forwards != null) allPlayers.AddRange(rosterRoot.Forwards);

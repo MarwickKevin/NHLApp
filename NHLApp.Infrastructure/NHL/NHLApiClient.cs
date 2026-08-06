@@ -28,7 +28,7 @@ namespace NHLApp.Infrastructure.NHL
         public async Task<string> GetPlayerLandingAsync(int playerId)
             => await _httpClient.GetStringAsync($"{WebApiBase}player/{playerId}/landing");
 
-        public async Task<string> GetScheduleAsync(string date)
+        public async Task<string> GetWeeklyScheduleAsync(string date)
             => await _httpClient.GetStringAsync($"{WebApiBase}schedule/{date}");
 
         //public async Task<string> GetPlayByPlayAsync(int gameId)

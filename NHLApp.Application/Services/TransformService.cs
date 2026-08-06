@@ -1,5 +1,6 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Microsoft.Identity.Client;
 using NHLApp.Application.Contexts;
 using NHLApp.Application.DTOs;
 using NHLApp.Application.Extensions;
@@ -7,6 +8,7 @@ using NHLApp.Domain.Entities;
 using NHLApp.Infrastructure.Data;
 using System.Linq.Expressions;
 using System.Numerics;
+using System.Runtime.Intrinsics.X86;
 
 namespace NHLApp.Application.Services
 {
@@ -407,6 +409,30 @@ namespace NHLApp.Application.Services
 
                     return Task.FromResult(itemChanges);
                 });
+
+        }
+
+        /// <summary>
+        /// Transforms raw weekly schedule JSON payloads into basic Game entities containing only their unique Ids.
+        /// </summary>
+        /// <param name="context"></param>
+        /// <returns></returns>
+        public async Task TransformWeeklySchedulesAsync(WorkerContext context)
+        {
+            await ProcessGenericCollectionAsync<ScheduleRootDTO, GameDTO, long, Game>(
+                context,
+                endpoint: "schedule",
+                operationName: "TransformWeeklySchedule",
+                itemsSelector: root =>
+                    root.GameWeek?
+                        .SelectMany(week => week.Games ?? Enumerable.Empty<GameDTO>())
+                    ?? Enumerable.Empty<GameDTO>(),
+                keySelector: gameDto => gameDto.Id,
+                mapEntity: gameDto => new Game
+                {
+                    Id = gameDto.Id
+                },
+                dbSet: _db.Games);
         }
 
         #endregion
@@ -417,16 +443,23 @@ namespace NHLApp.Application.Services
         ////////////////////////////////////////     Level 1      ////////////////////////////////////////
         //////////////////////////////////////////////////////////////////////////////////////////////////
 
-
+        //------------------------------------------------------------------------------------------------------------------------
+        // Use directly only when a transformation requires custom per-item processing that does not fit the higher-level engines.
 
         /// <summary>
-        /// Level 1: Main batch execution engine handling transactional persistence and memory cleanup.
+        /// Level 1: Low-level batch engine responsible for executing transformations on individual items.
         /// </summary>
+        /// <typeparam name="T">The type of item being processed.</typeparam>
+        /// <param name="context">The worker context tracking processing state and transformation errors.</param>
+        /// <param name="items">The collection of items to process.</param>
+        /// <param name="operationName">The operation name used for logging.</param>
+        /// <param name="processItemAsync">The asynchronous transformation function executed for each item. Returns true when database changes were made.</param>
         /// <remarks>
-        /// <para><strong>Purpose:</strong> The foundational low-level engine. Use directly for complex per-record transformations that don't fit a standard collection pattern.</para>
-        /// <para><strong>Behavior:</strong> Iterates over items, executes the async handler, saves database changes incrementally, and clears the EF change tracker to prevent memory bloat.</para>
+        /// <para><strong>Purpose:</strong> Provides the foundation for all transformation workflows by centralizing item execution, persistence, error handling, and EF Core memory cleanup.</para>
+        /// <para><strong>When to use:</strong> Use directly only when a transformation requires custom per-item processing that does not fit the higher-level engines.</para>
+        /// <para><strong>Behavior:</strong> Executes each item handler individually, saves changes when required, logs transformation failures, and clears the EF Core change tracker after each item.</para>
         /// </remarks>
-        private async Task ProcessBatchAsync<T>(WorkerContext context, IEnumerable<T> items, string endpointName, Func<T, Task<bool>> processItemAsync)
+        private async Task ProcessBatchAsync<T>(WorkerContext context, IEnumerable<T> items, string operationName, Func<T, Task<bool>> processItemAsync)
         {
             foreach (var item in items)
             {
@@ -445,9 +478,9 @@ namespace NHLApp.Application.Services
                     context.TotalTransformErrors++;
                     _logger.LogErrorWithColor(
                         ex,
-                        "Failed to transform '{EndpointName}' payload. Total transform errors: {TotalErrors}",
+                        "Failed to transform '{operationName}' payload. Total transform errors: {TotalErrors}",
                         ConsoleColor.Red,
-                        endpointName,
+                        operationName,
                         context.TotalTransformErrors);
                 }
                 finally
@@ -463,15 +496,23 @@ namespace NHLApp.Application.Services
         ////////////////////////////////////////     Level 2     ////////////////////////////////////////
         /////////////////////////////////////////////////////////////////////////////////////////////////
 
-
+        //---------------------------------------------------------------------------------------------------------------
+        // Use when the transformation requires access to the complete JSON payload instead of individual extracted items:
 
         /// <summary>
-        /// Level 2: Intermediate engine for processing unique root payloads that contain nested items.
+        /// Level 2: Intermediate engine for processing raw API responses where the complete root DTO requires custom handling.
         /// </summary>
+        /// <typeparam name="TRoot">The root DTO type representing the deserialized JSON structure.</typeparam>
+        /// <param name="context">The worker context tracking processing state and transformation errors.</param>
+        /// <param name="endpoint">The raw API response endpoint to query.</param>
+        /// <param name="operationName">The operation name used for logging and tracking.</param>
+        /// <param name="processRootAsync">The asynchronous transformation function executed using the deserialized root DTO.</param>
         /// <remarks>
-        /// <para><strong>Purpose:</strong> Use when loading a staging endpoint whose root JSON requires global asynchronous processing per record.</para>
-        /// <para><strong>Behavior:</strong> Fetches raw records, handles root-level deserialization, and delegates item execution down to Motor 1.</para>
+        /// <para><strong>Purpose:</strong> Provides the common workflow for loading raw responses and deserializing root DTOs while allowing custom root-level transformation logic.</para>
+        /// <para><strong>When to use:</strong> Use when the transformation requires access to the complete JSON payload instead of individual extracted items.</para>
+        /// <para><strong>Behavior:</strong> Loads raw responses, deserializes each payload into the root DTO, and delegates processing to the provided handler.</para>
         /// </remarks>
+
         private async Task ProcessEndpointAsync<TRoot>(WorkerContext context, string endpoint, string operationName, Func<TRoot, Task<bool>> processRootAsync)
             where TRoot : class
         {
@@ -494,13 +535,25 @@ namespace NHLApp.Application.Services
                 return await processRootAsync(root);
             });
         }
+        
+
+        //--------------------------------------------------------------------------------
+        // Use when each extracted item requires custom processing before being persisted:
 
         /// <summary>
-        /// Level 2: Intermediate engine to iterate through and process a collection of child items extracted from a root payload.
+        /// Level 2: Intermediate engine for processing collections of child items extracted from root DTOs.
         /// </summary>
+        /// <typeparam name="TRoot">The root DTO type representing the deserialized JSON structure.</typeparam>
+        /// <typeparam name="TItem">The individual item type extracted from the root DTO.</typeparam>
+        /// <param name="context">The worker context tracking processing state and transformation errors.</param>
+        /// <param name="endpoint">The raw API response endpoint to query.</param>
+        /// <param name="operationName">The operation name used for logging and tracking.</param>
+        /// <param name="itemsSelector">Function that extracts the item collection from the root DTO.</param>
+        /// <param name="processItemAsync">The asynchronous transformation function executed for each extracted item.</param>
         /// <remarks>
-        /// <para><strong>Purpose:</strong> Use when each raw response contains an array or list of items that need to be iterated over (e.g., teams or roster items).</para>
-        /// <para><strong>Behavior:</strong> Deserializes the root entity, extracts the inner collection via the provided selector, and evaluates the processing logic on each item.</para>
+        /// <para><strong>Purpose:</strong> Provides a reusable workflow for processing JSON payloads containing collections of child items requiring custom transformation logic.</para>
+        /// <para><strong>When to use:</strong> Use when each extracted item requires custom processing before being persisted.</para>
+        /// <para><strong>Behavior:</strong> Deserializes root DTOs, extracts items using the selector, processes each item, and delegates persistence handling to the batch engine.</para>
         /// </remarks>
         private async Task ProcessEndpointCollectionAsync<TRoot, TItem>(WorkerContext context, string endpoint, string operationName, Func<TRoot, IEnumerable<TItem>> itemsSelector, Func<TItem, Task<bool>> processItemAsync)
             where TRoot : class
@@ -545,13 +598,27 @@ namespace NHLApp.Application.Services
         /////////////////////////////////////////////////////////////////////////////////////////////////
 
 
+        //----------------------------------------------------------------------------------------------------------
+        // Use when extracted items can be mapped directly into entities without additional custom processing logic:
 
         /// <summary>
-        /// Level 3: High-level turn-key engine to automatically transform and insert standardized entities with primary key duplicate checking.
+        /// Level 3: High-level generic engine for transforming API collections into EF Core entities.
         /// </summary>
+        /// <typeparam name="TRoot">The root DTO type representing the JSON response structure.</typeparam>
+        /// <typeparam name="TItem">The individual item DTO type extracted from the root DTO.</typeparam>
+        /// <typeparam name="TKey">The key type used for duplicate detection (int, long, Guid, etc.).</typeparam>
+        /// <typeparam name="TEntity">The EF Core entity type being inserted.</typeparam>
+        /// <param name="context">The worker context tracking processing state and transformation errors.</param>
+        /// <param name="endpoint">The raw API response endpoint to query.</param>
+        /// <param name="operationName">The operation name used for logging and tracking.</param>
+        /// <param name="itemsSelector">Function that extracts the item collection from the root DTO.</param>
+        /// <param name="keySelector">Function that extracts the unique key from an item DTO.</param>
+        /// <param name="mapEntity">Function that converts an item DTO into an EF Core entity.</param>
+        /// <param name="dbSet">The EF Core DbSet where new entities are added.</param>
         /// <remarks>
-        /// <para><strong>Purpose:</strong> The default choice for 90% of simple entities that extract items from JSON and map directly into a table.</para>
-        /// <para><strong>Behavior:</strong> Automatically caches existing database keys to prevent primary key collisions, extracts items, maps them to the target entity, and stages them for insertion.</para>
+        /// <para><strong>Purpose:</strong> Provides a reusable DTO-to-entity transformation pipeline for standard API collection imports.</para>
+        /// <para><strong>When to use:</strong> Use when extracted items can be mapped directly into entities without additional custom processing logic.</para>
+        /// <para><strong>Behavior:</strong> Loads existing keys, skips duplicates, maps DTOs into entities, stages new entities for insertion, and delegates persistence handling to the batch engine.</para>
         /// </remarks>
         private async Task ProcessGenericCollectionAsync<TRoot, TItem, TKey, TEntity>(WorkerContext context, string endpoint, string operationName, Func<TRoot, IEnumerable<TItem>> itemsSelector, Func<TItem, TKey> keySelector, Func<TItem, TEntity> mapEntity, DbSet<TEntity> dbSet)
             where TRoot : class

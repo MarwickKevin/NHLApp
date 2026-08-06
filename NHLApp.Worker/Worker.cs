@@ -50,7 +50,7 @@ namespace NHLApp.Worker
             await importService.ImportPlayerLandingsAsync(context);
             _logger.LogInformationWithColor("Import des player landings terminé", ConsoleColor.Green);
 
-            await importService.ImportSchedulesAsync(context);
+            await importService.ImportWeeklySchedulesAsync(context);
             _logger.LogInformationWithColor("Import des cédule terminé", ConsoleColor.Green);
 
 
@@ -72,6 +72,8 @@ namespace NHLApp.Worker
 
             await transformService.TransformPlayerLandingsAsync(context);
             _logger.LogInformationWithColor("Transformation des player landings terminé", ConsoleColor.Green);
+
+            await transformService.TransformWeeklySchedulesAsync(context);
 
 
 

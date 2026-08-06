@@ -24,6 +24,7 @@ namespace NHLApp.Infrastructure.Data
         public DbSet<DraftDetail> DraftDetail { get; set; }
         public DbSet<PlayerAwards> PlayerAwards { get; set; }
         public DbSet<SeasonTotal> SeasonTotals { get; set; }
+        public DbSet<Game> Games { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -104,6 +105,10 @@ namespace NHLApp.Infrastructure.Data
                 .HasOne(pa => pa.Season)
                 .WithMany(s => s.Awards)
                 .HasForeignKey(pa => pa.SeasonId);
+
+            modelBuilder.Entity<Game>()
+                .Property(g => g.Id)
+                .ValueGeneratedNever();
 
 
         }
