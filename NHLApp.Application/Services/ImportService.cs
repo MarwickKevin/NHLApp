@@ -11,7 +11,7 @@ using NHLApp.Application.Contexts;
 namespace NHLApp.Application.Services
 {
     // TODO: Add retry logic for API calls to handle transient failures and improve reliability
-    // TODO: Make error handling consistent across all methods, including logging and exception throwing.
+    // TODO: Make error handling consistent across all methods, including logging and exception throwing. (centralize error handling)
     // TODO: Use hash comparison for JSON content to determine if an update is necessary, instead of relying solely on timestamps
     // TODO: Improve commenting and documentation for each method, including parameter descriptions and return values.
     // TODO: Add counters of success (x/y) and show in console
@@ -138,7 +138,7 @@ namespace NHLApp.Application.Services
                     fetchApiAsync: seasonId => _nhlClient.GetTeamRosterAsync(triCode, seasonId));
             }
 
-            // ------------- Populate context.PlayerIds to use in ImportPlayerLandings ----------- //            
+            // ------------- Populate context.PlayerIds to use in ImportPlayerLandings ----------- //             (done here to minimize the number of times we read from the database, but TODO: we should just use a new jsonmMetadata column where needed to avoid deserializing the entire roster jsons) 
             PopulatePlayerIdsFromRosters(context);
         }
 
@@ -165,77 +165,45 @@ namespace NHLApp.Application.Services
         }
 
         /// <summary>
-        /// Imports the club schedule for each team and each of their seasons from the NHL API and stores them in the database.
+        /// Imports the global NHL schedule week by week for all season IDs found in the raw database (from 1917 onwards).
         /// </summary>
-        /// <returns></returns>
         public async Task ImportSchedulesAsync(WorkerContext context)
         {
-            var triCodes = GetValidTeamTriCodes(context);
-            if (!triCodes.Any())
+            var seasonRaw = _db.RawApiResponses.FirstOrDefault(r => r.Endpoint == "season");
+            if (seasonRaw == null || string.IsNullOrWhiteSpace(seasonRaw.ResponseJson))
             {
                 context.TotalImportErrors++;
-                _logger.LogErrorWithColor(
-                    "Cannot process club schedules because raw team data has not been imported yet. Total import errors: {TotalErrors}",
-                    ConsoleColor.Red,
-                    context.TotalImportErrors);
+                _logger.LogErrorWithColor("No season data found in raw database. Please import seasons first.", ConsoleColor.Red);
                 return;
             }
 
-            var allRosterSeasons = _db.RawApiResponses
-                .Where(r => r.Endpoint == "roster-seasons")
-                .ToDictionary(r => r.EntityId, r => r.ResponseJson);
-
-            foreach (var triCode in triCodes)
+            if (!seasonRaw.ResponseJson.TryDeserializeSafe<List<int>>(out var seasonIds, out _) || seasonIds == null || !seasonIds.Any())
             {
-                var key = $"roster-seasons-{triCode}";
+                context.TotalImportErrors++;
+                _logger.LogErrorWithColor("Failed to deserialize seasons list.", ConsoleColor.Red);
+                return;
+            }
 
-                if (!allRosterSeasons.TryGetValue(key, out var responseJson) ||
-                    !responseJson.TryDeserializeSafe<List<int>>(out var seasonIds, out _) ||
-                    seasonIds == null)
-                {
-                    continue;
-                }
+            var seasons = seasonIds.Select(id => new SeasonInfo(id)).ToList();
 
-                foreach (var seasonId in seasonIds)
-                {
-                    // Convertit l'ID de saison (ex: 20232024) en liste de mois (ex: "2023-10", "2023-11", ..., "2024-04")
-                    var yearMonths = GenerateSeasonMonths(seasonId);
+            _logger.LogInformationWithColor("Starting global schedule import across {Count} seasons...", ConsoleColor.Cyan, seasons.Count);
 
-                    await ProcessCollectionImportAsync(
-                        context,
-                        items: yearMonths,
-                        endpoint: "club-schedule",
-                        entityIdSelector: yearMonth => $"{triCode}-{yearMonth}",
-                        fetchApiAsync: yearMonth => _nhlClient.GetClubScheduleAsync(triCode, yearMonth));
-                }
+            foreach (var season in seasons)
+            {
+                _logger.LogInformationWithColor("Processing schedule for season {SeasonId} (from {Start} to {End})...",
+                    ConsoleColor.Cyan, season.SeasonId, season.StartDate.ToString("yyyy-MM-dd"), season.EndDate.ToString("yyyy-MM-dd"));
+
+                var weeklyDates = GenerateWeeklyScheduleDates(season.StartDate, season.EndDate);
+
+                await ProcessCollectionImportAsync(
+                    context,
+                    items: weeklyDates,
+                    endpoint: "schedule",
+                    entityIdSelector: dateStr => $"{season.SeasonId}-{dateStr}",
+                    fetchApiAsync: dateStr => _nhlClient.GetScheduleAsync(dateStr));
             }
         }
 
-        private List<string> GenerateSeasonMonths(int seasonId)
-        {
-            // seasonId format typique: 20232024 -> startYear = 2023, endYear = 2024
-            var seasonStr = seasonId.ToString();
-            if (seasonStr.Length != 8) return new List<string>();
-
-            int startYear = int.Parse(seasonStr.Substring(0, 4));
-            int endYear = int.Parse(seasonStr.Substring(4, 4));
-
-            var months = new List<string>();
-
-            // Mois de la saison régulière et séries (Octobre à Avril/Juin)
-            // Octobre à Décembre de l'année de début
-            for (int m = 10; m <= 12; m++)
-            {
-                months.Add($"{startYear}-{m:D2}");
-            }
-            // Janvier à Juin de l'année de fin
-            for (int m = 1; m <= 6; m++)
-            {
-                months.Add($"{endYear}-{m:D2}");
-            }
-
-            return months;
-        }
         #endregion
 
         #region Import Processing Engines
@@ -403,6 +371,24 @@ namespace NHLApp.Application.Services
             }
 
             _logger.LogInformationWithColor("Extracted {Count} unique player IDs into WorkerContext.", ConsoleColor.Green, context.PlayerIds.Count);
+        }
+
+        /// <summary>
+        /// Generates a list of date strings (formatted as YYYY-MM-DD) stepping by 7 days 
+        /// to cover the entire season via the global schedule endpoint.
+        /// </summary>
+        private List<string> GenerateWeeklyScheduleDates(DateTime startDate, DateTime endDate)
+        {
+            var dates = new List<string>();
+            var current = startDate;
+
+            while (current <= endDate)
+            {
+                dates.Add(current.ToString("yyyy-MM-dd"));
+                current = current.AddDays(7);
+            }
+
+            return dates;
         }
         #endregion
     }
