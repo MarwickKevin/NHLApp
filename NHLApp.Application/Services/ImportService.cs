@@ -57,7 +57,10 @@ namespace NHLApp.Application.Services
                 context,
                 endpoint: "team",
                 entityId: "all",
-                fetchApiAsync: () => _nhlClient.GetTeamsAsync());
+                fetchApiAsync: () => _nhlClient.GetTeamsAsync(),
+                // Extract team tricodes from the JSON response for metadata storage
+                metadataSelector: json => ExtractTricodeMetadata(json));
+
         }
 
         /// <summary>
@@ -66,7 +69,7 @@ namespace NHLApp.Application.Services
         /// <returns></returns>
         public async Task ImportRosterSeasonsAsync(WorkerContext context)
         {
-            var triCodes = GetValidTeamTriCodes(context);
+            var triCodes = GetTeamTriCodesFromMetadata();
             if (!triCodes.Any())
             {
                 context.TotalImportErrors++;
@@ -82,7 +85,9 @@ namespace NHLApp.Application.Services
                 items: triCodes,
                 endpoint: "roster-seasons",
                 entityIdSelector: triCode => triCode,
-                fetchApiAsync: triCode => _nhlClient.GetTeamRosterSeasonsAsync(triCode));
+                fetchApiAsync: triCode => _nhlClient.GetTeamRosterSeasonsAsync(triCode),
+                // Extract season IDs from the roster seasons JSON response for metadata storage
+                metadataSelector: json => ExtractSeasonIdsMetadata(json));
         }
 
         /// <summary>
@@ -92,7 +97,7 @@ namespace NHLApp.Application.Services
         public async Task ImportRostersAsync(WorkerContext context)
         {
             // Extract team tricodes from the raw team data
-            var triCodes = GetValidTeamTriCodes(context);
+            var triCodes = GetTeamTriCodesFromMetadata();
             if (!triCodes.Any())
             {
                 context.TotalImportErrors++;
@@ -103,40 +108,38 @@ namespace NHLApp.Application.Services
                 return;
             }
 
-            var allRosterSeasons = _unitOfWork.RawApiResponses
-                .Where(r => r.Endpoint == "roster-seasons")
-                .ToDictionary(r => r.EntityId, r => r.ResponseJson);
+            // Check if the roster-seasons data has been imported for all teams
+            var allRosterSeasonsExist = _unitOfWork.RawApiResponses.Any(r => r.Endpoint == "roster-seasons");
+            if (!allRosterSeasonsExist)
+            {
+                context.TotalImportErrors++;
+                _logger.LogErrorWithColor("Cannot process rosters because roster-seasons data has not been imported yet.", ConsoleColor.Red, context.TotalImportErrors);
+                return;
+            }
 
             // For each team, retrieve the roster seasons and then import the roster for each season
             foreach (var triCode in triCodes)
             {
-                var key = $"roster-seasons-{triCode}";
+                var seasonIds = GetSeasonIdsFromMetadata(triCode);
 
                 // If the roster seasons data is missing or cannot be deserialized, skip to the next team
-                if (!allRosterSeasons.TryGetValue(key, out var responseJson) ||
-                    !responseJson.TryDeserializeSafe<List<int>>(out var seasonIds, out _) ||
-                    seasonIds == null)
+                if (!seasonIds.Any())
                 {
                     context.TotalImportErrors++;
-                    _logger.LogErrorWithColor(
-                        "Failed to import roster seasons for team {TriCode}. Total import errors: {TotalErrors}",
-                        ConsoleColor.Red,
-                        triCode,
-                        context.TotalImportErrors);
+                    _logger.LogErrorWithColor("Failed to find roster seasons metadata for team {TriCode}. Total errors: {TotalErrors}", ConsoleColor.Red, triCode, context.TotalImportErrors);
                     continue;
                 }
 
-                // Process each season for the team, fetching the roster data and storing it in the database
                 await ProcessCollectionImportAsync(
                     context,
                     items: seasonIds,
                     endpoint: "roster",
                     entityIdSelector: seasonId => $"{triCode}-{seasonId}",
-                    fetchApiAsync: seasonId => _nhlClient.GetTeamRosterAsync(triCode, seasonId));
-            }
+                    fetchApiAsync: seasonId => _nhlClient.GetTeamRosterAsync(triCode, seasonId),
+                    // Extract player IDs from the roster JSON response for metadata storage
+                    metadataSelector: json => ExtractPlayerIdsMetadata(json));
 
-            // ------------- Populate context.PlayerIds to use in ImportPlayerLandings ----------- //            
-            PopulatePlayerIdsFromRosters(context);
+            }
         }
 
         /// <summary>
@@ -145,17 +148,19 @@ namespace NHLApp.Application.Services
         /// <returns></returns>
         public async Task ImportPlayerLandingsAsync(WorkerContext context)
         {
-            if (!context.PlayerIds.Any())
+            var playerIds = GetAllPlayerIdsFromMetadata();
+
+            if (!playerIds.Any())
             {
                 _logger.LogInformationWithColor("No player IDs found in context to import player landings.", ConsoleColor.Yellow);
                 return;
             }
 
-            _logger.LogInformationWithColor("Starting import of player landings for {Count} unique players...", ConsoleColor.Cyan, context.PlayerIds.Count);
+            _logger.LogInformationWithColor("Starting import of player landings for {Count} unique players...", ConsoleColor.Cyan, playerIds.Count);
 
             await ProcessCollectionImportAsync(
                 context,
-                items: context.PlayerIds,
+                items: playerIds,
                 endpoint: "player-landing",
                 entityIdSelector: playerId => playerId.ToString(),
                 fetchApiAsync: playerId => _nhlClient.GetPlayerLandingAsync(playerId));
@@ -170,8 +175,9 @@ namespace NHLApp.Application.Services
         /// <param name="endpoint"></param>
         /// <param name="entityId"></param>
         /// <param name="fetchApiAsync"></param>
+        /// <param name="metadataSelector"></param>
         /// <returns></returns>
-        private async Task ProcessImportAsync(WorkerContext context, string endpoint, string entityId, Func<Task<string>> fetchApiAsync)
+        private async Task ProcessImportAsync(WorkerContext context, string endpoint, string entityId, Func<Task<string>> fetchApiAsync, Func<string, string?>? metadataSelector = null)
         {
             var key = $"{endpoint}-{entityId}";
             var existing = _unitOfWork.RawApiResponses
@@ -186,7 +192,9 @@ namespace NHLApp.Application.Services
             try
             {
                 var json = await fetchApiAsync();
-                await _unitOfWork.SaveOrUpdateRawResponseAsync(endpoint, key, json);
+                string? metadata = metadataSelector?.Invoke(json);
+
+                await _unitOfWork.SaveOrUpdateRawResponseAsync(endpoint, key, json, metadata);
 
                 context.TotalApiCalls++;
                 _logger.LogInformationWithColor("TOTAL API CALLS SINCE APP STARTED: {TotalApiCalls}", ConsoleColor.Magenta, context.TotalApiCalls);
@@ -212,7 +220,7 @@ namespace NHLApp.Application.Services
         /// <param name="entityIdSelector"></param>
         /// <param name="fetchApiAsync"></param>
         /// <returns></returns>
-        private async Task ProcessCollectionImportAsync<T>(WorkerContext context, IEnumerable<T> items, string endpoint, Func<T, string> entityIdSelector, Func<T, Task<string>> fetchApiAsync)
+        private async Task ProcessCollectionImportAsync<T>(WorkerContext context, IEnumerable<T> items, string endpoint, Func<T, string> entityIdSelector, Func<T, Task<string>> fetchApiAsync, Func<string, string?>? metadataSelector = null)
         {
             var existingRecords = _unitOfWork.RawApiResponses
                 .Where(r => r.Endpoint == endpoint)
@@ -236,8 +244,9 @@ namespace NHLApp.Application.Services
                 try
                 {
                     var json = await fetchApiAsync(item);
+                    string? metadata = metadataSelector?.Invoke(json);
 
-                    await _unitOfWork.SaveOrUpdateRawResponseAsync(endpoint, key, json);
+                    await _unitOfWork.SaveOrUpdateRawResponseAsync(endpoint, key, json, metadata);
 
                     await Task.Delay(ApiThrottlingDelay);
 
@@ -263,71 +272,153 @@ namespace NHLApp.Application.Services
         /// <summary>
         /// Checks if the data fetched at the specified time is still fresh (i.e., fetched within the last 24 hours).
         /// </summary>
-        /// <param name="fetchedAt"></param>
-        /// <returns></returns>
         private bool IsFresh(DateTime? fetchedAt)
         {
             return fetchedAt.HasValue && fetchedAt.Value > DateTime.UtcNow.AddDays(-1);
         }
 
+        #endregion
+
+        #region Metadata Extract and Get Methods
+        
+
         /// <summary>
-        /// Retrieves a list of valid team tricodes from the raw team data stored in the database.
+        /// Extracts the team tricodes from the raw JSON response of the team endpoint and returns them as a serialized JSON string for metadata storage.
         /// </summary>
+        /// <param name="json"></param>
         /// <returns></returns>
-        private List<string> GetValidTeamTriCodes(WorkerContext context)
+        private string? ExtractTricodeMetadata(string json)
+        {
+            if (json.TryDeserializeSafe<NhlTeamRootDTO>(out var teamRoot, out _) && teamRoot?.Data != null)
+            {
+                var triCodes = teamRoot.Data
+                    .Where(t => t.TriCode != "TBD" && t.TriCode != "NHL")
+                    .Select(t => t.TriCode)
+                    .Distinct()
+                    .ToList();
+
+                return JsonSerializer.Serialize(new { TriCodes = triCodes });
+            }
+            return null;
+        }
+        /// <summary>
+        /// Retrieves a list of valid team tricodes from the team endpoint metadata.
+        /// </summary>
+        private List<string> GetTeamTriCodesFromMetadata()
         {
             var teamRaw = _unitOfWork.RawApiResponses.FirstOrDefault(r => r.Endpoint == "team");
-            if (teamRaw == null || string.IsNullOrWhiteSpace(teamRaw.ResponseJson))
+            if (teamRaw == null || string.IsNullOrWhiteSpace(teamRaw.Metadata)) return new List<string>();
+
+            try
             {
-                return new List<string>();
-            }
-
-            // if the raw team data cannot be deserialized into the expected DTO, log an error and return an empty list
-            if (!teamRaw.ResponseJson.TryDeserializeSafe<NhlTeamRootDTO>(out var root, out _) || root?.Data == null)
-            {
-                return new List<string>();
-            }
-
-            return root.Data
-                .Where(t => t.TriCode != "TBD" && t.TriCode != "NHL")
-                .Select(t => t.TriCode)
-                .Distinct()
-                .ToList();
-        }
-
-        /// <summary>
-        /// Extracts unique player IDs from roster JSON responses and adds them to the provided WorkerContext.
-        /// </summary>
-        /// <param name="context">The WorkerContext instance to which the player IDs will be added.</param>
-        private void PopulatePlayerIdsFromRosters(WorkerContext context)
-        {
-            var rosterJsons = _unitOfWork.RawApiResponses
-                .Where(r => r.Endpoint == "roster")
-                .Select(r => r.ResponseJson)
-                .ToList();
-
-            foreach (var json in rosterJsons)
-            {
-                if (string.IsNullOrWhiteSpace(json)) continue;
-
-                if (json.TryDeserializeSafe<NhlRosterRootDTO>(out var rosterRoot, out _) && rosterRoot != null)
+                using var doc = JsonDocument.Parse(teamRaw.Metadata);
+                if (doc.RootElement.TryGetProperty("TriCodes", out var triCodesElement) && triCodesElement.ValueKind == JsonValueKind.Array)
                 {
-                    // On combine Forwards, Defensemen et Goalies (en gérant les nuls potentiels)
-                    var allPlayers = new List<NhlPlayerDTO>();
-
-                    if (rosterRoot.Forwards != null) allPlayers.AddRange(rosterRoot.Forwards);
-                    if (rosterRoot.Defensemen != null) allPlayers.AddRange(rosterRoot.Defensemen);
-                    if (rosterRoot.Goalies != null) allPlayers.AddRange(rosterRoot.Goalies);
-
-                    foreach (var player in allPlayers)
-                    {
-                        context.PlayerIds.Add(player.Id);
-                    }
+                    return triCodesElement.EnumerateArray()
+                        .Select(e => e.GetString()!)
+                        .Where(s => !string.IsNullOrEmpty(s))
+                        .ToList();
                 }
             }
+            catch { _logger.LogErrorWithColor("Error parsing Tricodes for metadata", ConsoleColor.Red);}
 
-            _logger.LogInformationWithColor("Extracted {Count} unique player IDs into WorkerContext.", ConsoleColor.Green, context.PlayerIds.Count);
+            return new List<string>();
         }
+
+
+        /// <summary>
+        /// Extracts the season Ids from the roster-seasons JSON response and returns them as a serialized JSON string for metadata storage.
+        /// </summary>
+        /// <param name="json"></param>
+        /// <returns></returns>
+        private string? ExtractSeasonIdsMetadata(string json)
+        {
+            if (json.TryDeserializeSafe<List<int>>(out var seasons, out _) && seasons != null)
+            {
+                return JsonSerializer.Serialize(new { SeasonIds = seasons });
+            }
+            return null;
+        }
+        /// <summary>
+        /// Retrieves the season Ids for a specific team from the roster-seasons metadata.
+        /// </summary>
+        private List<int> GetSeasonIdsFromMetadata(string triCode)
+        {
+            var key = $"roster-seasons-{triCode}";
+            var record = _unitOfWork.RawApiResponses
+                .FirstOrDefault(r => r.Endpoint == "roster-seasons" && r.EntityId == key);
+
+            if (record == null || string.IsNullOrWhiteSpace(record.Metadata)) return new List<int>();
+
+            try
+            {
+                using var doc = JsonDocument.Parse(record.Metadata);
+                if (doc.RootElement.TryGetProperty("SeasonIds", out var idsElement) && idsElement.ValueKind == JsonValueKind.Array)
+                {
+                    return idsElement.EnumerateArray()
+                        .Where(e => e.TryGetInt32(out _))
+                        .Select(e => e.GetInt32())
+                        .ToList();
+                }
+            }
+            catch {_logger.LogErrorWithColor("Error parsing SeasonIds for metadata", ConsoleColor.Red);}
+
+            return new List<int>();
+        }
+
+
+        /// <summary>
+        /// Extracts all unique player Ids from the roster JSON response and returns them as a serialized JSON string for metadata storage.
+        /// </summary>
+        /// <param name="json"></param>
+        /// <returns></returns>
+        private string? ExtractPlayerIdsMetadata(string json)
+        {
+            if (json.TryDeserializeSafe<NhlRosterRootDTO>(out var rosterRoot, out _) && rosterRoot != null)
+            {
+                var playerIds = new HashSet<int>();
+                if (rosterRoot.Forwards != null) foreach (var p in rosterRoot.Forwards) playerIds.Add(p.Id);
+                if (rosterRoot.Defensemen != null) foreach (var p in rosterRoot.Defensemen) playerIds.Add(p.Id);
+                if (rosterRoot.Goalies != null) foreach (var p in rosterRoot.Goalies) playerIds.Add(p.Id);
+
+                return JsonSerializer.Serialize(new { PlayerIds = playerIds });
+            }
+            return null;
+        }
+        /// <summary>
+        /// Retrieves all unique player Ids from the roster metadata.
+        /// </summary>
+        private List<int> GetAllPlayerIdsFromMetadata()
+        {
+            var playerIds = new List<int>();
+
+            var records = _unitOfWork.RawApiResponses
+                .Where(r => r.Endpoint == "roster" && !string.IsNullOrWhiteSpace(r.Metadata))
+                .ToList();
+
+            foreach (var record in records)
+            {
+                try
+                {
+                    using var doc = JsonDocument.Parse(record.Metadata!);
+                    if (doc.RootElement.TryGetProperty("PlayerIds", out var idsElement) && idsElement.ValueKind == JsonValueKind.Array)
+                    {
+                        foreach (var e in idsElement.EnumerateArray())
+                        {
+                            if (e.TryGetInt32(out var id))
+                            {
+                                playerIds.Add(id);
+                            }
+                        }
+                    }
+                }
+                catch { _logger.LogErrorWithColor("Error parsing PlayerId for metadata", ConsoleColor.Red); }
+            }
+
+            return playerIds.Distinct().ToList();
+        }
+
+
         #endregion
     }
 }

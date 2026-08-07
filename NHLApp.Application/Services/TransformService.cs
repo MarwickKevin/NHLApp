@@ -159,7 +159,7 @@ namespace NHLApp.Application.Services
             var rawRecords = await _unitOfWork.RawApiResponses.Where(r => r.Endpoint == "roster").ToListAsync();
 
 
-            await ProcessBatchAsync(context, rawRecords, "TransformRosters", async raw =>
+            await ProcessBatchAsync(context, rawRecords, "TransformRosters", raw =>
             {
                 // Skip if the EntityId is not in the expected format ("roster-TEAMCODE-SEASONID")
                 string[] keyParts = raw.EntityId.Split('-');
@@ -171,7 +171,7 @@ namespace NHLApp.Application.Services
                         ConsoleColor.Red,
                         raw.EntityId,
                         context.TotalTransformErrors);
-                    return false;
+                    return Task.FromResult(false);
                 }
 
                 string teamTriCode = keyParts[keyParts.Length - 2].Trim().ToUpper();
@@ -183,7 +183,7 @@ namespace NHLApp.Application.Services
                         ConsoleColor.Red,
                         raw.EntityId,
                         context.TotalTransformErrors);
-                    return false;
+                    return Task.FromResult(false);
                 }
 
                 // Ensure the team and season exist in our database core tables before processing the roster
@@ -195,7 +195,7 @@ namespace NHLApp.Application.Services
                         ConsoleColor.Red,
                         raw.EntityId,
                         context.TotalTransformErrors);
-                    return false;
+                    return Task.FromResult(false);
                 }
 
                 // Automatically deserialize the entire nested structure using the DTO
@@ -207,7 +207,7 @@ namespace NHLApp.Application.Services
                         ConsoleColor.Red,
                         raw.EntityId,
                         context.TotalTransformErrors);
-                    return false;
+                    return Task.FromResult(false);
                 }
 
                 // Flatten the three positional lists into a single collection for processing
@@ -250,7 +250,7 @@ namespace NHLApp.Application.Services
                     existingRosters.Add((teamId, playerDto.Id, seasonId));
                     itemChanges = true;
                 }
-                return itemChanges;
+                return Task.FromResult(itemChanges);
             });
         }
 

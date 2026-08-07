@@ -30,6 +30,6 @@ namespace NHLApp.Domain.Interfaces
 
         Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 
-        Task SaveOrUpdateRawResponseAsync(string endpoint, string entityId, string json);
+        Task SaveOrUpdateRawResponseAsync(string endpoint, string entityId, string json, string? metadata = null);
     }
 }

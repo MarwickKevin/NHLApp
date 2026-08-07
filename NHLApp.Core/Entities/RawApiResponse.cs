@@ -13,5 +13,6 @@ namespace NHLApp.Domain.Entities
         public string EntityId { get; set; } = string.Empty;
         public string ResponseJson { get; set; } = string.Empty;
         public DateTime FetchedAt { get; set; }
+        public string? Metadata { get; set; }
     }
 }
