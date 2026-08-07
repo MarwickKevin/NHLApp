@@ -1,6 +1,5 @@
 ﻿using NHLApp.Domain.Entities;
 using NHLApp.Domain.Interfaces;
-using NHLApp.Infrastructure.Data;
 using System.Text.Json;
 using NHLApp.Application.DTOs;
 using Microsoft.Extensions.Logging;
@@ -19,19 +18,17 @@ namespace NHLApp.Application.Services
     public class ImportService
     {
         private readonly INHLApiClient _nhlClient;
-        private readonly NHLAppDbContext _db;
+        private readonly IUnitOfWork _unitOfWork;
         private readonly ILogger<ImportService> _logger;
-        private readonly RawDataStore _rawDataStore;
 
         // Constants for API throttling to avoid hitting the NHL API too quickly
         private const int ApiThrottlingDelay = 100;
 
-        public ImportService(INHLApiClient nhlClient, NHLAppDbContext db, ILogger<ImportService> logger, RawDataStore rawDataStore)
+        public ImportService(INHLApiClient nhlClient, IUnitOfWork unitOfWork, ILogger<ImportService> logger)
         {
             _nhlClient = nhlClient;
-            _db = db;
+            _unitOfWork = unitOfWork;
             _logger = logger;
-            _rawDataStore = rawDataStore;
         }
 
         #region Import Methods
@@ -106,7 +103,7 @@ namespace NHLApp.Application.Services
                 return;
             }
 
-            var allRosterSeasons = _db.RawApiResponses
+            var allRosterSeasons = _unitOfWork.RawApiResponses
                 .Where(r => r.Endpoint == "roster-seasons")
                 .ToDictionary(r => r.EntityId, r => r.ResponseJson);
 
@@ -177,7 +174,7 @@ namespace NHLApp.Application.Services
         private async Task ProcessImportAsync(WorkerContext context, string endpoint, string entityId, Func<Task<string>> fetchApiAsync)
         {
             var key = $"{endpoint}-{entityId}";
-            var existing = _db.RawApiResponses
+            var existing = _unitOfWork.RawApiResponses
                 .FirstOrDefault(r => r.EntityId == key);
 
             if (IsFresh(existing?.FetchedAt))
@@ -189,7 +186,7 @@ namespace NHLApp.Application.Services
             try
             {
                 var json = await fetchApiAsync();
-                await _rawDataStore.SaveOrUpdateAsync(endpoint, key, json);
+                await _unitOfWork.SaveOrUpdateRawResponseAsync(endpoint, key, json);
 
                 context.TotalApiCalls++;
                 _logger.LogInformationWithColor("TOTAL API CALLS SINCE APP STARTED: {TotalApiCalls}", ConsoleColor.Magenta, context.TotalApiCalls);
@@ -217,7 +214,7 @@ namespace NHLApp.Application.Services
         /// <returns></returns>
         private async Task ProcessCollectionImportAsync<T>(WorkerContext context, IEnumerable<T> items, string endpoint, Func<T, string> entityIdSelector, Func<T, Task<string>> fetchApiAsync)
         {
-            var existingRecords = _db.RawApiResponses
+            var existingRecords = _unitOfWork.RawApiResponses
                 .Where(r => r.Endpoint == endpoint)
                 .Select(r => new { r.EntityId, r.FetchedAt })
                 .ToDictionary(r => r.EntityId, r => r.FetchedAt);
@@ -240,7 +237,7 @@ namespace NHLApp.Application.Services
                 {
                     var json = await fetchApiAsync(item);
 
-                    await _rawDataStore.SaveOrUpdateAsync(endpoint, key, json);
+                    await _unitOfWork.SaveOrUpdateRawResponseAsync(endpoint, key, json);
 
                     await Task.Delay(ApiThrottlingDelay);
 
@@ -279,7 +276,7 @@ namespace NHLApp.Application.Services
         /// <returns></returns>
         private List<string> GetValidTeamTriCodes(WorkerContext context)
         {
-            var teamRaw = _db.RawApiResponses.FirstOrDefault(r => r.Endpoint == "team");
+            var teamRaw = _unitOfWork.RawApiResponses.FirstOrDefault(r => r.Endpoint == "team");
             if (teamRaw == null || string.IsNullOrWhiteSpace(teamRaw.ResponseJson))
             {
                 return new List<string>();
@@ -304,7 +301,7 @@ namespace NHLApp.Application.Services
         /// <param name="context">The WorkerContext instance to which the player IDs will be added.</param>
         private void PopulatePlayerIdsFromRosters(WorkerContext context)
         {
-            var rosterJsons = _db.RawApiResponses
+            var rosterJsons = _unitOfWork.RawApiResponses
                 .Where(r => r.Endpoint == "roster")
                 .Select(r => r.ResponseJson)
                 .ToList();

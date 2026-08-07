@@ -2,6 +2,7 @@ using Microsoft.Extensions.Logging;
 using NHLApp.Application.Contexts;
 using NHLApp.Application.Extensions;
 using NHLApp.Application.Services;
+using NHLApp.Domain.Interfaces;
 using NHLApp.Infrastructure.Data;
 
 namespace NHLApp.Worker
@@ -20,7 +21,7 @@ namespace NHLApp.Worker
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
             using var scope = _serviceProvider.CreateScope();
-            var db = scope.ServiceProvider.GetRequiredService<NHLAppDbContext>();
+            var unitOfWork = scope.ServiceProvider.GetRequiredService<IUnitOfWork>();
             var importService = scope.ServiceProvider.GetRequiredService<ImportService>();
             var transformService = scope.ServiceProvider.GetRequiredService<TransformService>();
             var context = scope.ServiceProvider.GetRequiredService<WorkerContext>();

@@ -4,7 +4,7 @@ using NHLApp.Application.Contexts;
 using NHLApp.Application.DTOs;
 using NHLApp.Application.Extensions;
 using NHLApp.Domain.Entities;
-using NHLApp.Infrastructure.Data;
+using NHLApp.Domain.Interfaces;
 using System.Linq.Expressions;
 using System.Numerics;
 
@@ -18,12 +18,12 @@ namespace NHLApp.Application.Services
 
     public class TransformService
     {
-        private readonly NHLAppDbContext _db;
+        private readonly IUnitOfWork _unitOfWork;
         private readonly ILogger<TransformService> _logger;
 
-        public TransformService(NHLAppDbContext db, ILogger<TransformService> logger)
+        public TransformService(IUnitOfWork unitOfWork, ILogger<TransformService> logger)
         {
-            _db = db;
+            _unitOfWork = unitOfWork;
             _logger = logger;
         }
 
@@ -46,7 +46,7 @@ namespace NHLApp.Application.Services
                     var (startYear, endYear) = ParseSeasonYears(seasonId);
                     return new Season { SeasonId = seasonId, StartYear = startYear, EndYear = endYear };
                 },
-                dbSet: _db.Seasons);
+                dbSet: _unitOfWork.Seasons);
         }
 
         /// <summary>
@@ -76,7 +76,7 @@ namespace NHLApp.Application.Services
                     // Add new franchises if they don't exist
                     if (teamDto.FranchiseId.HasValue && knownFranchiseIds.Add(teamDto.FranchiseId.Value))
                     {
-                        _db.Franchises.Add(new Franchise { FranchiseId = teamDto.FranchiseId.Value, Name = teamDto.FullName });
+                        _unitOfWork.Franchises.Add(new Franchise { FranchiseId = teamDto.FranchiseId.Value, Name = teamDto.FullName });
                         itemChanges = true;
                     }
 
@@ -89,7 +89,7 @@ namespace NHLApp.Application.Services
                             if (!knownSeasonIds.Contains(seasonId))
                             {
                                 var (startYear, endYear) = ParseSeasonYears(seasonId);
-                                _db.Seasons.Add(new Season { SeasonId = seasonId, StartYear = startYear, EndYear = endYear });
+                                _unitOfWork.Seasons.Add(new Season { SeasonId = seasonId, StartYear = startYear, EndYear = endYear });
                                 knownSeasonIds.Add(seasonId);
                                 itemChanges = true;
                             }
@@ -98,7 +98,7 @@ namespace NHLApp.Application.Services
                             if (knownTeamSeasons.Contains((teamDto.Id, seasonId)))
                                 continue;
 
-                            _db.Teams.Add(new Team
+                            _unitOfWork.Teams.Add(new Team
                             {
                                 TeamId = teamDto.Id,
                                 SeasonId = seasonId,
@@ -136,7 +136,7 @@ namespace NHLApp.Application.Services
                     FirstName = playerDto.FirstName?.Default ?? string.Empty,
                     LastName = playerDto.LastName?.Default ?? string.Empty
                 },
-                dbSet: _db.Players);
+                dbSet: _unitOfWork.Players);
         }
 
         /// <summary>
@@ -151,12 +151,12 @@ namespace NHLApp.Application.Services
             HashSet<int> validSeasonIds = await GetKnownKeysAsync<Season, int>(s => s.SeasonId);
 
             // Create a lookup dictionary for team tri-codes and season IDs to their corresponding TeamId for quick access
-            Dictionary<(string TriCode, int SeasonId), int> teamLookup = _db.Teams
+            Dictionary<(string TriCode, int SeasonId), int> teamLookup = _unitOfWork.Teams
                 .AsEnumerable() // Pull evaluation into memory to safely use GroupBy/ValueTuple
                 .GroupBy(t => new ValueTuple<string, int>(t.TriCode, t.SeasonId))
                 .ToDictionary(g => g.Key, g => g.First().TeamId);
 
-            var rawRecords = await _db.RawApiResponses.Where(r => r.Endpoint == "roster").ToListAsync();
+            var rawRecords = await _unitOfWork.RawApiResponses.Where(r => r.Endpoint == "roster").ToListAsync();
 
 
             await ProcessBatchAsync(context, rawRecords, "TransformRosters", async raw =>
@@ -241,7 +241,7 @@ namespace NHLApp.Application.Services
                         continue;
                     }
 
-                    _db.TeamRosters.Add(new TeamRosters
+                    _unitOfWork.TeamRosters.Add(new TeamRosters
                     {
                         TeamId = teamId,
                         PlayerId = playerDto.Id,
@@ -269,7 +269,7 @@ namespace NHLApp.Application.Services
                 processRootAsync: landing =>
                 {
                     bool itemChanges = false;
-                    var player = _db.Players
+                    var player = _unitOfWork.Players
                         .Include(p => p.DraftDetail)
                         .Include(p => p.SeasonTotal)
                         .Include(p => p.PlayerAwards)
@@ -376,13 +376,13 @@ namespace NHLApp.Application.Services
                                 string trophyName = awardDto.Trophy?.Default ?? string.Empty;
                                 if (string.IsNullOrWhiteSpace(trophyName)) continue;
 
-                                var trophy = _db.Trophies.Local.FirstOrDefault(t => t.Name.Equals(trophyName, StringComparison.OrdinalIgnoreCase))
-                                             ?? _db.Trophies.FirstOrDefault(t => t.Name == trophyName);
+                                var trophy = _unitOfWork.Trophies.Local.FirstOrDefault(t => t.Name.Equals(trophyName, StringComparison.OrdinalIgnoreCase))
+                                             ?? _unitOfWork.Trophies.FirstOrDefault(t => t.Name == trophyName);
 
                                 if (trophy == null)
                                 {
                                     trophy = new Trophy { Name = trophyName };
-                                    _db.Trophies.Add(trophy);
+                                    _unitOfWork.Trophies.Add(trophy);
                                 }
 
                                 foreach (var seasonDto in awardDto.Seasons)
@@ -437,7 +437,7 @@ namespace NHLApp.Application.Services
 
                     if (hasChanges)
                     {
-                        await _db.SaveChangesAsync();
+                        await _unitOfWork.SaveChangesAsync();
                     }
                 }
                 catch (Exception ex)
@@ -452,7 +452,7 @@ namespace NHLApp.Application.Services
                 }
                 finally
                 {
-                    _db.ChangeTracker.Clear();
+                    _unitOfWork.ChangeTracker.Clear();
                 }
             }
         }
@@ -475,7 +475,7 @@ namespace NHLApp.Application.Services
         private async Task ProcessEndpointAsync<TRoot>(WorkerContext context, string endpoint, string operationName, Func<TRoot, Task<bool>> processRootAsync)
             where TRoot : class
         {
-            var raws = await _db.RawApiResponses.Where(r => r.Endpoint == endpoint).ToListAsync();
+            var raws = await _unitOfWork.RawApiResponses.Where(r => r.Endpoint == endpoint).ToListAsync();
 
             await ProcessBatchAsync(context, raws, operationName, async raw =>
             {
@@ -505,7 +505,7 @@ namespace NHLApp.Application.Services
         private async Task ProcessEndpointCollectionAsync<TRoot, TItem>(WorkerContext context, string endpoint, string operationName, Func<TRoot, IEnumerable<TItem>> itemsSelector, Func<TItem, Task<bool>> processItemAsync)
             where TRoot : class
         {
-            var raws = await _db.RawApiResponses.Where(r => r.Endpoint == endpoint).ToListAsync();
+            var raws = await _unitOfWork.RawApiResponses.Where(r => r.Endpoint == endpoint).ToListAsync();
 
             /// Use the batch processing engine to handle each raw response, deserialize the root payload, and process each item in the extracted collection
             await ProcessBatchAsync(context, raws, operationName, async raw =>
@@ -557,7 +557,7 @@ namespace NHLApp.Application.Services
             where TRoot : class
             where TEntity : class
         {
-            var primaryKeyName = _db.Model.FindEntityType(typeof(TEntity))?.FindPrimaryKey()?.Properties[0].Name;
+            var primaryKeyName = _unitOfWork.Model.FindEntityType(typeof(TEntity))?.FindPrimaryKey()?.Properties[0].Name;
             var knownKeys = primaryKeyName != null
                 ? await GetKnownKeysAsync<TEntity, TKey>(e => EF.Property<TKey>(e, primaryKeyName))
                 : new HashSet<TKey>();
@@ -591,7 +591,7 @@ namespace NHLApp.Application.Services
         /// </summary>
         private async Task<Dictionary<string, List<int>>> BuildTricodeToSeasonsMappingAsync(WorkerContext context)
         {
-            var rosterSeasonsRaws = await _db.RawApiResponses.Where(r => r.Endpoint == "roster-seasons").ToListAsync();
+            var rosterSeasonsRaws = await _unitOfWork.RawApiResponses.Where(r => r.Endpoint == "roster-seasons").ToListAsync();
             var tricodeToSeasons = new Dictionary<string, List<int>>(StringComparer.OrdinalIgnoreCase);
 
             // Loop through each raw roster-seasons response, validate the EntityId format, and deserialize the JSON payload into a list of season IDs.
@@ -680,7 +680,7 @@ namespace NHLApp.Application.Services
         private async Task<HashSet<TKey>> GetKnownKeysAsync<TEntity, TKey>(Expression<Func<TEntity, TKey>> selector)
             where TEntity : class
         {
-            return (await _db.Set<TEntity>().Select(selector).ToListAsync()).ToHashSet();
+            return (await _unitOfWork.Set<TEntity>().Select(selector).ToListAsync()).ToHashSet();
         }
 
         #endregion
