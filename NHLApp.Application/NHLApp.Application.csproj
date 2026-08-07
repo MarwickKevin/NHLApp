@@ -7,8 +7,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\NHLApp.Core\NHLApp.Domain.csproj" />
-    <ProjectReference Include="..\NHLApp.Infrastructure\NHLApp.Infrastructure.csproj" />
+    <ProjectReference Include="..\NHLApp.Core\NHLApp.Domain.csproj" />    
   </ItemGroup>
 
 </Project>

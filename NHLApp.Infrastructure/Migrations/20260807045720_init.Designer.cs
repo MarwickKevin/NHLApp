@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using NHLApp.Infrastructure.Data;
 
@@ -11,9 +12,11 @@ using NHLApp.Infrastructure.Data;
 namespace NHLApp.Infrastructure.Migrations
 {
     [DbContext(typeof(NHLAppDbContext))]
-    partial class NHLAppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260807045720_init")]
+    partial class init
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -58,16 +61,6 @@ namespace NHLApp.Infrastructure.Migrations
                     b.HasKey("FranchiseId");
 
                     b.ToTable("Franchises");
-                });
-
-            modelBuilder.Entity("NHLApp.Domain.Entities.Game", b =>
-                {
-                    b.Property<long>("Id")
-                        .HasColumnType("bigint");
-
-                    b.HasKey("Id");
-
-                    b.ToTable("Games");
                 });
 
             modelBuilder.Entity("NHLApp.Domain.Entities.Player", b =>
