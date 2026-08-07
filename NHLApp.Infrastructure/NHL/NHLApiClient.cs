@@ -31,10 +31,10 @@ namespace NHLApp.Infrastructure.NHL
         public async Task<string> GetWeeklyScheduleAsync(string date)
             => await _httpClient.GetStringAsync($"{WebApiBase}schedule/{date}");
 
-        //public async Task<string> GetPlayByPlayAsync(int gameId)
-        //    => await _httpClient.GetStringAsync($"{WebApiBase}gamecenter/{gameId}/play-by-play");
+        public async Task<string> GetPlayByPlayAsync(int gameId)
+            => await _httpClient.GetStringAsync($"{WebApiBase}gamecenter/{gameId}/play-by-play");
 
-        //public async Task<string> GetBoxscoreAsync(int gameId)
-        //    => await _httpClient.GetStringAsync($"{WebApiBase}gamecenter/{gameId}/boxscore");
+        public async Task<string> GetBoxscoreAsync(int gameId)
+            => await _httpClient.GetStringAsync($"{WebApiBase}gamecenter/{gameId}/boxscore");
     }
 }

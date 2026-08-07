@@ -196,8 +196,53 @@ namespace NHLApp.Application.Services
                     items: weeklyDates,
                     endpoint: "schedule",
                     entityIdSelector: dateStr => $"{seasonId}-{dateStr}",
-                    fetchApiAsync: dateStr => _nhlClient.GetWeeklyScheduleAsync(dateStr));
+                    fetchApiAsync: dateStr => _nhlClient.GetWeeklyScheduleAsync(dateStr),
+                    metadataSelector: json => ExtractGameIdsMetadata(json));
             }
+        }
+
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="context"></param>
+        /// <returns></returns>
+        public async Task ImportBoxScoresAsync(WorkerContext context)
+        {
+            var gameIds = GetAllGameIdsFromMetadata();
+
+            if (!gameIds.Any())
+            {
+                _logger.LogInformationWithColor("No game IDs found in metadata to import box scores.", ConsoleColor.Yellow);
+                return;
+            }
+
+            await ProcessCollectionImportAsync(
+                context,
+                items: gameIds,
+                endpoint: "boxscore",
+                entityIdSelector: gameId => gameId.ToString(),
+                fetchApiAsync: gameId => _nhlClient.GetBoxscoreAsync(gameId));
+        }
+
+        /// <summary>
+        /// Imports the play-by-play data for each collected game ID from the NHL API and stores them in the database.
+        /// </summary>
+        public async Task ImportPlayByPlayAsync(WorkerContext context)
+        {
+            var gameIds = GetAllGameIdsFromMetadata();
+
+            if (!gameIds.Any())
+            {
+                _logger.LogInformationWithColor("No game IDs found in metadata to import play-by-play data.", ConsoleColor.Yellow);
+                return;
+            }
+
+            await ProcessCollectionImportAsync(
+                context,
+                items: gameIds,
+                endpoint: "play-by-play",
+                entityIdSelector: gameId => gameId.ToString(),
+                fetchApiAsync: gameId => _nhlClient.GetPlayByPlayAsync(gameId));
         }
 
         #endregion
@@ -502,6 +547,69 @@ namespace NHLApp.Application.Services
             return playerIds.Distinct().ToList();
         }
 
+
+        /// <summary>
+        /// Extracts all unique game IDs from the weekly schedule JSON response and returns them as a serialized JSON string for metadata storage.
+        /// </summary>
+        private string? ExtractGameIdsMetadata(string json)
+        {
+            // Adjust NhlScheduleRootDTO or your target DTO structure matching your schedule response
+            if (json.TryDeserializeSafe<ScheduleRootDTO>(out var scheduleRoot, out _) && scheduleRoot != null)
+            {
+                var gameIds = new HashSet<long>();
+
+                // Loop through games in the schedule structure (adjust based on your DTO properties, e.g., GameWeek / Games)
+                if (scheduleRoot.GameWeek != null)
+                {
+                    foreach (var gameWeek in scheduleRoot.GameWeek)
+                    {
+                        if (gameWeek.Games != null)
+                        {
+                            foreach (var game in gameWeek.Games)
+                            {
+                                gameIds.Add(game.Id);
+                            }
+                        }
+                        
+                        
+                    }
+                }
+
+                return JsonSerializer.Serialize(new { GameIds = gameIds });
+            }
+            return null;
+        }
+        /// <summary>
+        /// Retrieves all unique game IDs from the schedule metadata.
+        /// </summary>
+        private List<int> GetAllGameIdsFromMetadata()
+        {
+            var gameIds = new List<int>();
+            var records = _unitOfWork.RawApiResponses
+                .Where(r => r.Endpoint == "schedule" && !string.IsNullOrWhiteSpace(r.Metadata))
+                .ToList();
+
+            foreach (var record in records)
+            {
+                try
+                {
+                    using var doc = JsonDocument.Parse(record.Metadata!);
+                    if (doc.RootElement.TryGetProperty("GameIds", out var idsElement) && idsElement.ValueKind == JsonValueKind.Array)
+                    {
+                        foreach (var e in idsElement.EnumerateArray())
+                        {
+                            if (e.TryGetInt32(out var id))
+                            {
+                                gameIds.Add(id);
+                            }
+                        }
+                    }
+                }
+                catch { _logger.LogErrorWithColor("Error parsing GameIds from schedule metadata", ConsoleColor.Red); }
+            }
+
+            return gameIds.Distinct().ToList();
+        }
 
         #endregion
     }

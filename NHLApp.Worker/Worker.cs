@@ -54,6 +54,11 @@ namespace NHLApp.Worker
             await importService.ImportWeeklySchedulesAsync(context);
             _logger.LogInformationWithColor("Import des cédule terminé", ConsoleColor.Green);
 
+            await importService.ImportBoxScoresAsync(context); 
+            _logger.LogInformationWithColor("Import des box scores terminé", ConsoleColor.Green);
+
+            await importService.ImportPlayByPlayAsync(context);
+            _logger.LogInformationWithColor("Import des play-by-play terminé", ConsoleColor.Green);
 
             //////////////////////////////////////////////////////////////////
             // Transform data from the database into the application models //
@@ -72,10 +77,10 @@ namespace NHLApp.Worker
             _logger.LogInformationWithColor("Transformation des rosters terminée", ConsoleColor.Green);
 
             await transformService.TransformPlayerLandingsAsync(context);
-            _logger.LogInformationWithColor("Transformation des player landings terminé", ConsoleColor.Green);
+            _logger.LogInformationWithColor("Transformation des player landings terminée", ConsoleColor.Green);
 
             await transformService.TransformWeeklySchedulesAsync(context);
-
+            _logger.LogInformationWithColor("Transformation cédules hebdomadaires en GameIds terminée", ConsoleColor.Green);
 
 
             // Log the end of the worker and record the end time
