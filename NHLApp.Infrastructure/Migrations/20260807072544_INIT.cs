@@ -6,7 +6,7 @@ using Microsoft.EntityFrameworkCore.Migrations;
 namespace NHLApp.Infrastructure.Migrations
 {
     /// <inheritdoc />
-    public partial class init : Migration
+    public partial class INIT : Migration
     {
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
@@ -28,7 +28,6 @@ namespace NHLApp.Infrastructure.Migrations
                 columns: table => new
                 {
                     Id = table.Column<long>(type: "bigint", nullable: false)
-                        .Annotation("SqlServer:Identity", "1, 1")
                 },
                 constraints: table =>
                 {
@@ -78,7 +77,8 @@ namespace NHLApp.Infrastructure.Migrations
                     Endpoint = table.Column<string>(type: "nvarchar(max)", nullable: false),
                     EntityId = table.Column<string>(type: "nvarchar(max)", nullable: false),
                     ResponseJson = table.Column<string>(type: "nvarchar(max)", nullable: false),
-                    FetchedAt = table.Column<DateTime>(type: "datetime2", nullable: false)
+                    FetchedAt = table.Column<DateTime>(type: "datetime2", nullable: false),
+                    Metadata = table.Column<string>(type: "nvarchar(max)", nullable: true)
                 },
                 constraints: table =>
                 {

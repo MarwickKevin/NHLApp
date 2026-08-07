@@ -12,8 +12,8 @@ using NHLApp.Infrastructure.Data;
 namespace NHLApp.Infrastructure.Migrations
 {
     [DbContext(typeof(NHLAppDbContext))]
-    [Migration("20260806154923_FixGameId")]
-    partial class FixGameId
+    [Migration("20260807072544_INIT")]
+    partial class INIT
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -190,6 +190,9 @@ namespace NHLApp.Infrastructure.Migrations
 
                     b.Property<DateTime>("FetchedAt")
                         .HasColumnType("datetime2");
+
+                    b.Property<string>("Metadata")
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("ResponseJson")
                         .IsRequired()

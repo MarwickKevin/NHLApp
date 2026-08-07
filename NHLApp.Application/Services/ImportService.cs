@@ -166,42 +166,36 @@ namespace NHLApp.Application.Services
                 fetchApiAsync: playerId => _nhlClient.GetPlayerLandingAsync(playerId));
         }
 
+        
         /// <summary>
-        /// Imports the global NHL schedule week by week for all season IDs found in the raw database (from 1917 onwards).
+        /// Imports the global NHL schedule week by week for all season IDs found in the season metadata.
         /// </summary>
         public async Task ImportWeeklySchedulesAsync(WorkerContext context)
         {
-            var seasonRaw = _db.RawApiResponses.FirstOrDefault(r => r.Endpoint == "season");
-            if (seasonRaw == null || string.IsNullOrWhiteSpace(seasonRaw.ResponseJson))
+            var seasonIds = GetAllSeasonIdsFromMetadata();
+
+            if (!seasonIds.Any())
             {
                 context.TotalImportErrors++;
-                _logger.LogErrorWithColor("No season data found in raw database. Please import seasons first.", ConsoleColor.Red);
+                _logger.LogErrorWithColor("Cannot process schedules because season metadata has not been imported yet.", ConsoleColor.Red);
                 return;
             }
 
-            if (!seasonRaw.ResponseJson.TryDeserializeSafe<List<int>>(out var seasonIds, out _) || seasonIds == null || !seasonIds.Any())
+            _logger.LogInformationWithColor("Starting global schedule import across {Count} seasons...", ConsoleColor.Cyan, seasonIds.Count);
+
+            foreach (var seasonId in seasonIds)
             {
-                context.TotalImportErrors++;
-                _logger.LogErrorWithColor("Failed to deserialize seasons list.", ConsoleColor.Red);
-                return;
-            }
+                int startYear = seasonId / 10000;
+                var startDate = new DateTime(startYear, 7, 1);
+                var endDate = new DateTime(startYear + 1, 6, 30);
 
-            var seasons = seasonIds.Select(id => new SeasonInfo(id)).ToList();
-
-            _logger.LogInformationWithColor("Starting global schedule import across {Count} seasons...", ConsoleColor.Cyan, seasons.Count);
-
-            foreach (var season in seasons)
-            {
-                _logger.LogInformationWithColor("Processing schedule for season {SeasonId} (from {Start} to {End})...",
-                    ConsoleColor.Cyan, season.SeasonId, season.StartDate.ToString("yyyy-MM-dd"), season.EndDate.ToString("yyyy-MM-dd"));
-
-                var weeklyDates = GenerateWeeklyScheduleDates(season.StartDate, season.EndDate);
+                var weeklyDates = GenerateWeeklyScheduleDates(startDate, endDate);
 
                 await ProcessCollectionImportAsync(
                     context,
                     items: weeklyDates,
                     endpoint: "schedule",
-                    entityIdSelector: dateStr => $"{season.SeasonId}-{dateStr}",
+                    entityIdSelector: dateStr => $"{seasonId}-{dateStr}",
                     fetchApiAsync: dateStr => _nhlClient.GetWeeklyScheduleAsync(dateStr));
             }
         }
@@ -318,10 +312,27 @@ namespace NHLApp.Application.Services
             return fetchedAt.HasValue && fetchedAt.Value > DateTime.UtcNow.AddDays(-1);
         }
 
+        /// <summary>
+        /// Generates a list of weekly start date strings (YYYY-MM-DD) across a season span.
+        /// </summary>
+        private List<string> GenerateWeeklyScheduleDates(DateTime startDate, DateTime endDate)
+        {
+            var dates = new List<string>();
+            var current = startDate;
+
+            while (current <= endDate)
+            {
+                dates.Add(current.ToString("yyyy-MM-dd"));
+                current = current.AddDays(7);
+            }
+
+            return dates;
+        }
+
         #endregion
 
         #region Metadata Extract and Get Methods
-        
+
 
         /// <summary>
         /// Extracts the team tricodes from the raw JSON response of the team endpoint and returns them as a serialized JSON string for metadata storage.
@@ -405,6 +416,38 @@ namespace NHLApp.Application.Services
             catch {_logger.LogErrorWithColor("Error parsing SeasonIds for metadata", ConsoleColor.Red);}
 
             return new List<int>();
+        }
+        /// <summary>
+        /// Retrieves all unique season IDs from all roster-seasons metadata records.
+        /// </summary>
+        private List<int> GetAllSeasonIdsFromMetadata()
+        {
+            var seasonIds = new List<int>();
+
+            var records = _unitOfWork.RawApiResponses
+                .Where(r => r.Endpoint == "roster-seasons" && !string.IsNullOrWhiteSpace(r.Metadata))
+                .ToList();
+
+            foreach (var record in records)
+            {
+                try
+                {
+                    using var doc = JsonDocument.Parse(record.Metadata!);
+                    if (doc.RootElement.TryGetProperty("SeasonIds", out var idsElement) && idsElement.ValueKind == JsonValueKind.Array)
+                    {
+                        foreach (var e in idsElement.EnumerateArray())
+                        {
+                            if (e.TryGetInt32(out var id))
+                            {
+                                seasonIds.Add(id);
+                            }
+                        }
+                    }
+                }
+                catch { _logger.LogErrorWithColor("Error parsing SeasonIds from roster-seasons metadata", ConsoleColor.Red); }
+            }
+
+            return seasonIds.Distinct().ToList();
         }
 
 

@@ -432,7 +432,7 @@ namespace NHLApp.Application.Services
                 {
                     Id = gameDto.Id
                 },
-                dbSet: _db.Games);
+                dbSet: _unitOfWork.Games);
         }
 
         #endregion
