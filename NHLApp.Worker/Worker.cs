@@ -52,9 +52,9 @@ namespace NHLApp.Worker
             _logger.LogInformationWithColor("Import des player landings terminé", ConsoleColor.Green);
 
             await importService.ImportWeeklySchedulesAsync(context);
-            _logger.LogInformationWithColor("Import des cédule terminé", ConsoleColor.Green);
+            _logger.LogInformationWithColor("Import des cédules hebdomadaires terminé", ConsoleColor.Green);
 
-            await importService.ImportBoxScoresAsync(context); 
+            await importService.ImportBoxScoresAsync(context);
             _logger.LogInformationWithColor("Import des box scores terminé", ConsoleColor.Green);
 
             await importService.ImportPlayByPlayAsync(context);

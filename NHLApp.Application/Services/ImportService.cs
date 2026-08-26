@@ -212,6 +212,7 @@ namespace NHLApp.Application.Services
 
             if (!gameIds.Any())
             {
+                context.TotalImportErrors++;
                 _logger.LogInformationWithColor("No game IDs found in metadata to import box scores.", ConsoleColor.Yellow);
                 return;
             }
@@ -233,6 +234,7 @@ namespace NHLApp.Application.Services
 
             if (!gameIds.Any())
             {
+                context.TotalImportErrors++;
                 _logger.LogInformationWithColor("No game IDs found in metadata to import play-by-play data.", ConsoleColor.Yellow);
                 return;
             }
@@ -319,7 +321,6 @@ namespace NHLApp.Application.Services
                     _logger.LogInformationWithColor("{Key} is fresh, skipping import.", ConsoleColor.DarkGreen, key);
                     continue;
                 }
-
 
                 try
                 {
