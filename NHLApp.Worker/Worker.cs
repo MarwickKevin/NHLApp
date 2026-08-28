@@ -29,13 +29,13 @@ namespace NHLApp.Worker
             // Log the start of the worker and record the start time
             _logger.LogInformationWithColor("Worker NHLApp démarré", ConsoleColor.Green);
             context.StartedAt = DateTime.Now;
-            
 
-            
+
+
             ////////////////////////////////////////////////////
             // Import data from the NHL API into the database //
             ////////////////////////////////////////////////////
-            
+
             await importService.ImportSeasonsAsync(context);
             _logger.LogInformationWithColor("Import des saisons terminé", ConsoleColor.Green);
 

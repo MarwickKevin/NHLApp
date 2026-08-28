@@ -493,7 +493,7 @@ namespace NHLApp.Application.Services
                 catch { _logger.LogErrorWithColor("Error parsing SeasonIds from roster-seasons metadata", ConsoleColor.Red); }
             }
 
-            return seasonIds.Distinct().ToList();
+            return seasonIds.Distinct().Order().ToList();
         }
 
 
@@ -585,7 +585,7 @@ namespace NHLApp.Application.Services
         /// </summary>
         private List<int> GetAllGameIdsFromMetadata()
         {
-            var gameIds = new List<int>();
+            var gameIds = new List<long>();
             var records = _unitOfWork.RawApiResponses
                 .Where(r => r.Endpoint == "schedule" && !string.IsNullOrWhiteSpace(r.Metadata))
                 .ToList();
@@ -599,7 +599,7 @@ namespace NHLApp.Application.Services
                     {
                         foreach (var e in idsElement.EnumerateArray())
                         {
-                            if (e.TryGetInt32(out var id))
+                            if (e.TryGetInt64(out var id))
                             {
                                 gameIds.Add(id);
                             }
@@ -608,8 +608,7 @@ namespace NHLApp.Application.Services
                 }
                 catch { _logger.LogErrorWithColor("Error parsing GameIds from schedule metadata", ConsoleColor.Red); }
             }
-
-            return gameIds.Distinct().ToList();
+            return gameIds.Distinct().Select(id => (int)id).ToList();
         }
 
         #endregion
