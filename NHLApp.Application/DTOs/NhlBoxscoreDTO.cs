@@ -1,8 +1,11 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
+using System.Linq;
+using System.Text;
 using System.Text.Json.Serialization;
+using System.Threading.Tasks;
 
-namespace NHLApp.Application.DTOs
+namespace NHLApp.Application.DTOs.BoxscoreDTOs
 {
     public record NhlBoxscoreRootDTO(
         [property: JsonPropertyName("id")] int? Id,
@@ -13,9 +16,9 @@ namespace NHLApp.Application.DTOs
         [property: JsonPropertyName("venue")] NhlVenueDTO? Venue,
         [property: JsonPropertyName("venueLocation")] NhlVenueLocationDTO? VenueLocation,
         [property: JsonPropertyName("startTimeUTC")] string? StartTimeUTC,
-        [property: JsonPropertyName("easternUTCOffset")] string? EasternUTCOffset,
-        [property: JsonPropertyName("venueUTCOffset")] string? VenueUTCOffset,
-        [property: JsonPropertyName("tvBroadcasts")] List<NhlTvBroadcastDTO>? TvBroadcasts,
+        //[property: JsonPropertyName("easternUTCOffset")] string? EasternUTCOffset,
+        //[property: JsonPropertyName("venueUTCOffset")] string? VenueUTCOffset,
+        //[property: JsonPropertyName("tvBroadcasts")] List<NhlTvBroadcastDTO>? TvBroadcasts,
         [property: JsonPropertyName("gameState")] string? GameState,
         [property: JsonPropertyName("gameScheduleState")] string? GameScheduleState,
         [property: JsonPropertyName("periodDescriptor")] NhlPeriodDescriptorDTO? PeriodDescriptor,
@@ -33,22 +36,22 @@ namespace NHLApp.Application.DTOs
     );
 
     public record NhlVenueLocationDTO(
-        [property: JsonPropertyName("default")] string? Default,
-        [property: JsonPropertyName("fr")] string? Fr,
-        [property: JsonPropertyName("sk")] string? Sk,
-        [property: JsonPropertyName("cs")] string? Cs,
-        [property: JsonPropertyName("de")] string? De,
-        [property: JsonPropertyName("fi")] string? Fi,
-        [property: JsonPropertyName("sv")] string? Sv
+        [property: JsonPropertyName("default")] string? Default
+        //[property: JsonPropertyName("fr")] string? Fr,
+        //[property: JsonPropertyName("sk")] string? Sk,
+        //[property: JsonPropertyName("cs")] string? Cs,
+        //[property: JsonPropertyName("de")] string? De,
+        //[property: JsonPropertyName("fi")] string? Fi,
+        //[property: JsonPropertyName("sv")] string? Sv
     );
 
-    public record NhlTvBroadcastDTO(
-        [property: JsonPropertyName("id")] int? Id,
-        [property: JsonPropertyName("market")] string? Market,
-        [property: JsonPropertyName("countryCode")] string? CountryCode,
-        [property: JsonPropertyName("network")] string? Network,
-        [property: JsonPropertyName("sequenceNumber")] int? SequenceNumber
-    );
+    //public record NhlTvBroadcastDTO(
+    //    [property: JsonPropertyName("id")] int? Id,
+    //    [property: JsonPropertyName("market")] string? Market,
+    //    [property: JsonPropertyName("countryCode")] string? CountryCode,
+    //    [property: JsonPropertyName("network")] string? Network,
+    //    [property: JsonPropertyName("sequenceNumber")] int? SequenceNumber
+    //);
 
     public record NhlPeriodDescriptorDTO(
         [property: JsonPropertyName("number")] int? Number,
@@ -59,60 +62,60 @@ namespace NHLApp.Application.DTOs
 
     public record NhlAwayTeamDTO(
         [property: JsonPropertyName("id")] int? Id,
-        [property: JsonPropertyName("commonName")] NhlCommonNameDTO? CommonName,
-        [property: JsonPropertyName("abbrev")] string? Abbrev,
+        //[property: JsonPropertyName("commonName")] NhlCommonNameDTO? CommonName,
+        //[property: JsonPropertyName("abbrev")] string? Abbrev,
         [property: JsonPropertyName("score")] int? Score,
         [property: JsonPropertyName("sog")] int? Sog,
-        [property: JsonPropertyName("logo")] string? Logo,
-        [property: JsonPropertyName("darkLogo")] string? DarkLogo,
-        [property: JsonPropertyName("placeName")] NhlPlaceNameDTO? PlaceName,
-        [property: JsonPropertyName("placeNameWithPreposition")] NhlPlaceNameWithPrepositionDTO? PlaceNameWithPreposition,
+        //[property: JsonPropertyName("logo")] string? Logo,
+        //[property: JsonPropertyName("darkLogo")] string? DarkLogo,
+        //[property: JsonPropertyName("placeName")] NhlPlaceNameDTO? PlaceName,
+        //[property: JsonPropertyName("placeNameWithPreposition")] NhlPlaceNameWithPrepositionDTO? PlaceNameWithPreposition,
         [property: JsonPropertyName("forwards")] List<NhlForwardDTO>? Forwards,
         [property: JsonPropertyName("defense")] List<NhlDefenseDTO>? Defense,
         [property: JsonPropertyName("goalies")] List<NhlGoalieDTO>? Goalies
     );
 
     public record NhlCommonNameDTO(
-        [property: JsonPropertyName("default")] string? Default,
-        [property: JsonPropertyName("fr")] string? Fr,
-        [property: JsonPropertyName("cs")] string? Cs,
-        [property: JsonPropertyName("de")] string? De,
-        [property: JsonPropertyName("es")] string? Es,
-        [property: JsonPropertyName("fi")] string? Fi,
-        [property: JsonPropertyName("sk")] string? Sk,
-        [property: JsonPropertyName("sv")] string? Sv
+        [property: JsonPropertyName("default")] string? Default
+        //[property: JsonPropertyName("fr")] string? Fr,
+        //[property: JsonPropertyName("cs")] string? Cs,
+        //[property: JsonPropertyName("de")] string? De,
+        //[property: JsonPropertyName("es")] string? Es,
+        //[property: JsonPropertyName("fi")] string? Fi,
+        //[property: JsonPropertyName("sk")] string? Sk,
+        //[property: JsonPropertyName("sv")] string? Sv
     );
 
     public record NhlPlaceNameDTO(
-        [property: JsonPropertyName("default")] string? Default,
-        [property: JsonPropertyName("fr")] string? Fr,
-        [property: JsonPropertyName("cs")] string? Cs,
-        [property: JsonPropertyName("es")] string? Es,
-        [property: JsonPropertyName("fi")] string? Fi,
-        [property: JsonPropertyName("sk")] string? Sk,
-        [property: JsonPropertyName("sv")] string? Sv
+        [property: JsonPropertyName("default")] string? Default
+        //[property: JsonPropertyName("fr")] string? Fr,
+        //[property: JsonPropertyName("cs")] string? Cs,
+        //[property: JsonPropertyName("es")] string? Es,
+        //[property: JsonPropertyName("fi")] string? Fi,
+        //[property: JsonPropertyName("sk")] string? Sk,
+        //[property: JsonPropertyName("sv")] string? Sv
     );
 
     public record NhlPlaceNameWithPrepositionDTO(
-        [property: JsonPropertyName("default")] string? Default,
-        [property: JsonPropertyName("fr")] string? Fr,
-        [property: JsonPropertyName("cs")] string? Cs,
-        [property: JsonPropertyName("es")] string? Es,
-        [property: JsonPropertyName("fi")] string? Fi,
-        [property: JsonPropertyName("sk")] string? Sk,
-        [property: JsonPropertyName("sv")] string? Sv
+        [property: JsonPropertyName("default")] string? Default
+        //[property: JsonPropertyName("fr")] string? Fr,
+        //[property: JsonPropertyName("cs")] string? Cs,
+        //[property: JsonPropertyName("es")] string? Es,
+        //[property: JsonPropertyName("fi")] string? Fi,
+        //[property: JsonPropertyName("sk")] string? Sk,
+        //[property: JsonPropertyName("sv")] string? Sv
     );
 
     public record NhlHomeTeamDTO(
         [property: JsonPropertyName("id")] int? Id,
-        [property: JsonPropertyName("commonName")] NhlCommonNameDTO? CommonName,
-        [property: JsonPropertyName("abbrev")] string? Abbrev,
+        //[property: JsonPropertyName("commonName")] NhlCommonNameDTO? CommonName,
+        //[property: JsonPropertyName("abbrev")] string? Abbrev,
         [property: JsonPropertyName("score")] int? Score,
         [property: JsonPropertyName("sog")] int? Sog,
-        [property: JsonPropertyName("logo")] string? Logo,
-        [property: JsonPropertyName("darkLogo")] string? DarkLogo,
-        [property: JsonPropertyName("placeName")] NhlPlaceNameDTO? PlaceName,
-        [property: JsonPropertyName("placeNameWithPreposition")] NhlPlaceNameWithPrepositionDTO? PlaceNameWithPreposition,
+        //[property: JsonPropertyName("logo")] string? Logo,
+        //[property: JsonPropertyName("darkLogo")] string? DarkLogo,
+        //[property: JsonPropertyName("placeName")] NhlPlaceNameDTO? PlaceName,
+        //[property: JsonPropertyName("placeNameWithPreposition")] NhlPlaceNameWithPrepositionDTO? PlaceNameWithPreposition,
         [property: JsonPropertyName("forwards")] List<NhlForwardDTO>? Forwards,
         [property: JsonPropertyName("defense")] List<NhlDefenseDTO>? Defense,
         [property: JsonPropertyName("goalies")] List<NhlGoalieDTO>? Goalies
@@ -152,14 +155,14 @@ namespace NHLApp.Application.DTOs
     );
 
     public record NhlNameDTO(
-        [property: JsonPropertyName("default")] string? Default,
-        [property: JsonPropertyName("cs")] string? Cs,
-        [property: JsonPropertyName("fi")] string? Fi,
-        [property: JsonPropertyName("sk")] string? Sk,
-        [property: JsonPropertyName("sv")] string? Sv,
-        [property: JsonPropertyName("de")] string? De,
-        [property: JsonPropertyName("es")] string? Es,
-        [property: JsonPropertyName("fr")] string? Fr
+        [property: JsonPropertyName("default")] string? Default
+        //[property: JsonPropertyName("cs")] string? Cs,
+        //[property: JsonPropertyName("fi")] string? Fi,
+        //[property: JsonPropertyName("sk")] string? Sk,
+        //[property: JsonPropertyName("sv")] string? Sv,
+        //[property: JsonPropertyName("de")] string? De,
+        //[property: JsonPropertyName("es")] string? Es,
+        //[property: JsonPropertyName("fr")] string? Fr
     );
 
     public record NhlDefenseDTO(
@@ -218,8 +221,7 @@ namespace NHLApp.Application.DTOs
     );
 
     public record NhlLightLogoUrlDTO(
-        [property: JsonPropertyName("default")] string? Default,
-        [property: JsonPropertyName("fr")] string? Fr
+        [property: JsonPropertyName("default")] string? Default
+        //[property: JsonPropertyName("fr")] string? Fr
     );
-
 }
