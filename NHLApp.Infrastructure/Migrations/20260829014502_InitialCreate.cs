@@ -6,7 +6,7 @@ using Microsoft.EntityFrameworkCore.Migrations;
 namespace NHLApp.Infrastructure.Migrations
 {
     /// <inheritdoc />
-    public partial class INIT : Migration
+    public partial class InitialCreate : Migration
     {
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
@@ -27,7 +27,30 @@ namespace NHLApp.Infrastructure.Migrations
                 name: "Games",
                 columns: table => new
                 {
-                    Id = table.Column<long>(type: "bigint", nullable: false)
+                    Id = table.Column<int>(type: "int", nullable: false),
+                    Season = table.Column<int>(type: "int", nullable: false),
+                    GameType = table.Column<int>(type: "int", nullable: false),
+                    LimitedScoring = table.Column<bool>(type: "bit", nullable: false),
+                    GameDate = table.Column<string>(type: "nvarchar(20)", maxLength: 20, nullable: false),
+                    VenueDefault = table.Column<string>(type: "nvarchar(150)", maxLength: 150, nullable: false),
+                    VenueLocation = table.Column<string>(type: "nvarchar(100)", maxLength: 100, nullable: true),
+                    StartTimeUTC = table.Column<string>(type: "nvarchar(35)", maxLength: 35, nullable: false),
+                    GameState = table.Column<string>(type: "nvarchar(10)", maxLength: 10, nullable: false),
+                    GameScheduleState = table.Column<string>(type: "nvarchar(10)", maxLength: 10, nullable: false),
+                    AwayTeamId = table.Column<int>(type: "int", nullable: false),
+                    HomeTeamId = table.Column<int>(type: "int", nullable: false),
+                    AwayScore = table.Column<int>(type: "int", nullable: false),
+                    HomeScore = table.Column<int>(type: "int", nullable: false),
+                    AwaySog = table.Column<int>(type: "int", nullable: false),
+                    HomeSog = table.Column<int>(type: "int", nullable: false),
+                    ShootoutInUse = table.Column<bool>(type: "bit", nullable: false),
+                    OtInUse = table.Column<bool>(type: "bit", nullable: false),
+                    LastPeriodType = table.Column<string>(type: "nvarchar(20)", maxLength: 20, nullable: false),
+                    Tie = table.Column<bool>(type: "bit", nullable: true),
+                    OtPeriods = table.Column<int>(type: "int", nullable: true),
+                    RegPeriods = table.Column<int>(type: "int", nullable: true),
+                    SpecialEventParentId = table.Column<int>(type: "int", nullable: true),
+                    SpecialEventName = table.Column<string>(type: "nvarchar(150)", maxLength: 150, nullable: true)
                 },
                 constraints: table =>
                 {
@@ -109,6 +132,149 @@ namespace NHLApp.Infrastructure.Migrations
                 constraints: table =>
                 {
                     table.PrimaryKey("PK_Trophies", x => x.Id);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "GamePlays",
+                columns: table => new
+                {
+                    Id = table.Column<int>(type: "int", nullable: false)
+                        .Annotation("SqlServer:Identity", "1, 1"),
+                    GameId = table.Column<int>(type: "int", nullable: false),
+                    EventId = table.Column<int>(type: "int", nullable: false),
+                    PeriodNumber = table.Column<int>(type: "int", nullable: false),
+                    PeriodType = table.Column<string>(type: "nvarchar(20)", maxLength: 20, nullable: false),
+                    TimeInPeriod = table.Column<string>(type: "nvarchar(10)", maxLength: 10, nullable: false),
+                    TimeRemaining = table.Column<string>(type: "nvarchar(10)", maxLength: 10, nullable: false),
+                    TypeCode = table.Column<int>(type: "int", nullable: false),
+                    TypeDescKey = table.Column<string>(type: "nvarchar(50)", maxLength: 50, nullable: false),
+                    SortOrder = table.Column<int>(type: "int", nullable: false),
+                    SituationCode = table.Column<string>(type: "nvarchar(10)", maxLength: 10, nullable: false),
+                    HomeTeamDefendingSide = table.Column<string>(type: "nvarchar(5)", maxLength: 5, nullable: true),
+                    EventOwnerTeamId = table.Column<int>(type: "int", nullable: true),
+                    AwayScore = table.Column<int>(type: "int", nullable: true),
+                    HomeScore = table.Column<int>(type: "int", nullable: true),
+                    AwaySOG = table.Column<int>(type: "int", nullable: true),
+                    HomeSOG = table.Column<int>(type: "int", nullable: true),
+                    ShotType = table.Column<string>(type: "nvarchar(50)", maxLength: 50, nullable: true),
+                    ShootingPlayerId = table.Column<int>(type: "int", nullable: true),
+                    ScoringPlayerId = table.Column<int>(type: "int", nullable: true),
+                    ScoringPlayerTotal = table.Column<int>(type: "int", nullable: true),
+                    Assist1PlayerId = table.Column<int>(type: "int", nullable: true),
+                    Assist1PlayerTotal = table.Column<int>(type: "int", nullable: true),
+                    Assist2PlayerId = table.Column<int>(type: "int", nullable: true),
+                    Assist2PlayerTotal = table.Column<int>(type: "int", nullable: true),
+                    Assist3PlayerId = table.Column<int>(type: "int", nullable: true),
+                    Assist3PlayerTotal = table.Column<int>(type: "int", nullable: true),
+                    GoalieInNetId = table.Column<int>(type: "int", nullable: true),
+                    GoalInGame = table.Column<int>(type: "int", nullable: true),
+                    HittingPlayerId = table.Column<int>(type: "int", nullable: true),
+                    HitteePlayerId = table.Column<int>(type: "int", nullable: true),
+                    BlockingPlayerId = table.Column<int>(type: "int", nullable: true),
+                    WinningPlayerId = table.Column<int>(type: "int", nullable: true),
+                    LosingPlayerId = table.Column<int>(type: "int", nullable: true),
+                    CommittedByPlayerId = table.Column<int>(type: "int", nullable: true),
+                    DrawnByPlayerId = table.Column<int>(type: "int", nullable: true),
+                    ServedByPlayerId = table.Column<int>(type: "int", nullable: true),
+                    PenaltyDuration = table.Column<int>(type: "int", nullable: true),
+                    Reason = table.Column<string>(type: "nvarchar(100)", maxLength: 100, nullable: true),
+                    SecondaryReason = table.Column<string>(type: "nvarchar(100)", maxLength: 100, nullable: true),
+                    XCoord = table.Column<int>(type: "int", nullable: true),
+                    YCoord = table.Column<int>(type: "int", nullable: true),
+                    ZoneCode = table.Column<string>(type: "nvarchar(5)", maxLength: 5, nullable: true),
+                    DetailsTypeCode = table.Column<string>(type: "nvarchar(max)", nullable: true),
+                    DetailsDescKey = table.Column<string>(type: "nvarchar(max)", nullable: true),
+                    PlayerId = table.Column<int>(type: "int", nullable: true),
+                    DiscreteClip = table.Column<float>(type: "real", nullable: true),
+                    DiscreteClipFr = table.Column<float>(type: "real", nullable: true),
+                    HighlightClip = table.Column<float>(type: "real", nullable: true),
+                    HighlightClipFr = table.Column<float>(type: "real", nullable: true),
+                    HighlightClipSharingUrl = table.Column<string>(type: "nvarchar(max)", nullable: true),
+                    HighlightClipSharingUrlFr = table.Column<string>(type: "nvarchar(max)", nullable: true)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_GamePlays", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_GamePlays_Games_GameId",
+                        column: x => x.GameId,
+                        principalTable: "Games",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "GoalieGameStats",
+                columns: table => new
+                {
+                    Id = table.Column<int>(type: "int", nullable: false)
+                        .Annotation("SqlServer:Identity", "1, 1"),
+                    GameId = table.Column<int>(type: "int", nullable: false),
+                    PlayerId = table.Column<int>(type: "int", nullable: false),
+                    TeamId = table.Column<int>(type: "int", nullable: false),
+                    SweaterNumber = table.Column<int>(type: "int", nullable: false),
+                    Toi = table.Column<string>(type: "nvarchar(10)", maxLength: 10, nullable: false),
+                    Starter = table.Column<bool>(type: "bit", nullable: false),
+                    ShotsAgainst = table.Column<int>(type: "int", nullable: false),
+                    Saves = table.Column<int>(type: "int", nullable: false),
+                    GoalsAgainst = table.Column<int>(type: "int", nullable: false),
+                    SavePctg = table.Column<float>(type: "real", nullable: false),
+                    Pim = table.Column<int>(type: "int", nullable: false),
+                    Decision = table.Column<string>(type: "nvarchar(5)", maxLength: 5, nullable: true),
+                    EvenStrengthShotsAgainst = table.Column<string>(type: "nvarchar(15)", maxLength: 15, nullable: false),
+                    PowerPlayShotsAgainst = table.Column<string>(type: "nvarchar(15)", maxLength: 15, nullable: false),
+                    ShorthandedShotsAgainst = table.Column<string>(type: "nvarchar(15)", maxLength: 15, nullable: false),
+                    SaveShotsAgainst = table.Column<string>(type: "nvarchar(15)", maxLength: 15, nullable: false),
+                    EvenStrengthGoalsAgainst = table.Column<int>(type: "int", nullable: false),
+                    PowerPlayGoalsAgainst = table.Column<int>(type: "int", nullable: false),
+                    ShorthandedGoalsAgainst = table.Column<int>(type: "int", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_GoalieGameStats", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_GoalieGameStats_Games_GameId",
+                        column: x => x.GameId,
+                        principalTable: "Games",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "PlayerGameStats",
+                columns: table => new
+                {
+                    Id = table.Column<int>(type: "int", nullable: false)
+                        .Annotation("SqlServer:Identity", "1, 1"),
+                    GameId = table.Column<int>(type: "int", nullable: false),
+                    PlayerId = table.Column<int>(type: "int", nullable: false),
+                    TeamId = table.Column<int>(type: "int", nullable: false),
+                    SweaterNumber = table.Column<int>(type: "int", nullable: false),
+                    Position = table.Column<string>(type: "nvarchar(5)", maxLength: 5, nullable: false),
+                    Goals = table.Column<int>(type: "int", nullable: false),
+                    Assists = table.Column<int>(type: "int", nullable: false),
+                    Points = table.Column<int>(type: "int", nullable: false),
+                    PlusMinus = table.Column<int>(type: "int", nullable: false),
+                    Pim = table.Column<int>(type: "int", nullable: false),
+                    Hits = table.Column<int>(type: "int", nullable: false),
+                    PowerPlayGoals = table.Column<int>(type: "int", nullable: false),
+                    Sog = table.Column<int>(type: "int", nullable: false),
+                    FaceoffWinningPctg = table.Column<float>(type: "real", nullable: false),
+                    Toi = table.Column<string>(type: "nvarchar(10)", maxLength: 10, nullable: false),
+                    BlockedShots = table.Column<int>(type: "int", nullable: false),
+                    Shifts = table.Column<int>(type: "int", nullable: false),
+                    Giveaways = table.Column<int>(type: "int", nullable: false),
+                    Takeaways = table.Column<int>(type: "int", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_PlayerGameStats", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_PlayerGameStats_Games_GameId",
+                        column: x => x.GameId,
+                        principalTable: "Games",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
                 });
 
             migrationBuilder.CreateTable(
@@ -260,6 +426,18 @@ namespace NHLApp.Infrastructure.Migrations
                 });
 
             migrationBuilder.CreateIndex(
+                name: "IX_GamePlays_GameId_EventId",
+                table: "GamePlays",
+                columns: new[] { "GameId", "EventId" },
+                unique: true);
+
+            migrationBuilder.CreateIndex(
+                name: "IX_GoalieGameStats_GameId_PlayerId_TeamId",
+                table: "GoalieGameStats",
+                columns: new[] { "GameId", "PlayerId", "TeamId" },
+                unique: true);
+
+            migrationBuilder.CreateIndex(
                 name: "IX_PlayerAwards_SeasonId",
                 table: "PlayerAwards",
                 column: "SeasonId");
@@ -268,6 +446,12 @@ namespace NHLApp.Infrastructure.Migrations
                 name: "IX_PlayerAwards_TrophyId",
                 table: "PlayerAwards",
                 column: "TrophyId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_PlayerGameStats_GameId_PlayerId_TeamId",
+                table: "PlayerGameStats",
+                columns: new[] { "GameId", "PlayerId", "TeamId" },
+                unique: true);
 
             migrationBuilder.CreateIndex(
                 name: "IX_SeasonTotals_PlayerId",
@@ -302,10 +486,16 @@ namespace NHLApp.Infrastructure.Migrations
                 name: "DraftDetail");
 
             migrationBuilder.DropTable(
-                name: "Games");
+                name: "GamePlays");
+
+            migrationBuilder.DropTable(
+                name: "GoalieGameStats");
 
             migrationBuilder.DropTable(
                 name: "PlayerAwards");
+
+            migrationBuilder.DropTable(
+                name: "PlayerGameStats");
 
             migrationBuilder.DropTable(
                 name: "RawApiResponses");
@@ -318,6 +508,9 @@ namespace NHLApp.Infrastructure.Migrations
 
             migrationBuilder.DropTable(
                 name: "Trophies");
+
+            migrationBuilder.DropTable(
+                name: "Games");
 
             migrationBuilder.DropTable(
                 name: "Players");

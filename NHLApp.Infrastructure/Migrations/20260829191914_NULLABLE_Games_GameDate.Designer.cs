@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using NHLApp.Infrastructure.Data;
 
@@ -11,9 +12,11 @@ using NHLApp.Infrastructure.Data;
 namespace NHLApp.Infrastructure.Migrations
 {
     [DbContext(typeof(NHLAppDbContext))]
-    partial class NHLAppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260829191914_NULLABLE_Games_GameDate")]
+    partial class NULLABLE_Games_GameDate
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -74,27 +77,18 @@ namespace NHLApp.Infrastructure.Migrations
                     b.Property<int?>("AwayTeamId")
                         .HasColumnType("int");
 
-                    b.Property<bool?>("ClockInIntermission")
-                        .HasColumnType("bit");
-
-                    b.Property<bool?>("ClockRunning")
-                        .HasColumnType("bit");
-
-                    b.Property<int?>("ClockSecondsRemaining")
-                        .HasColumnType("int");
-
-                    b.Property<string>("ClockTimeRemaining")
-                        .HasColumnType("nvarchar(max)");
-
                     b.Property<string>("GameDate")
+                        .IsRequired()
                         .HasMaxLength(20)
                         .HasColumnType("nvarchar(20)");
 
                     b.Property<string>("GameScheduleState")
+                        .IsRequired()
                         .HasMaxLength(10)
                         .HasColumnType("nvarchar(10)");
 
                     b.Property<string>("GameState")
+                        .IsRequired()
                         .HasMaxLength(10)
                         .HasColumnType("nvarchar(10)");
 
@@ -111,29 +105,18 @@ namespace NHLApp.Infrastructure.Migrations
                         .HasColumnType("int");
 
                     b.Property<string>("LastPeriodType")
+                        .IsRequired()
                         .HasMaxLength(20)
                         .HasColumnType("nvarchar(20)");
 
                     b.Property<bool?>("LimitedScoring")
                         .HasColumnType("bit");
 
-                    b.Property<int?>("MaxRegulationPeriods")
-                        .HasColumnType("int");
-
                     b.Property<bool?>("OtInUse")
                         .HasColumnType("bit");
 
                     b.Property<int?>("OtPeriods")
                         .HasColumnType("int");
-
-                    b.Property<int?>("PeriodDescriptorOtPeriods")
-                        .HasColumnType("int");
-
-                    b.Property<int?>("PeriodNumber")
-                        .HasColumnType("int");
-
-                    b.Property<string>("PeriodType")
-                        .HasColumnType("nvarchar(max)");
 
                     b.Property<int?>("RegPeriods")
                         .HasColumnType("int");
@@ -144,9 +127,6 @@ namespace NHLApp.Infrastructure.Migrations
                     b.Property<bool?>("ShootoutInUse")
                         .HasColumnType("bit");
 
-                    b.Property<string>("SpecialEventLightLogoUrl")
-                        .HasColumnType("nvarchar(max)");
-
                     b.Property<string>("SpecialEventName")
                         .HasMaxLength(150)
                         .HasColumnType("nvarchar(150)");
@@ -155,6 +135,7 @@ namespace NHLApp.Infrastructure.Migrations
                         .HasColumnType("int");
 
                     b.Property<string>("StartTimeUTC")
+                        .IsRequired()
                         .HasMaxLength(35)
                         .HasColumnType("nvarchar(35)");
 
@@ -162,6 +143,7 @@ namespace NHLApp.Infrastructure.Migrations
                         .HasColumnType("bit");
 
                     b.Property<string>("VenueDefault")
+                        .IsRequired()
                         .HasMaxLength(150)
                         .HasColumnType("nvarchar(150)");
 
@@ -218,6 +200,12 @@ namespace NHLApp.Infrastructure.Migrations
                     b.Property<string>("DetailsTypeCode")
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<float?>("DiscreteClip")
+                        .HasColumnType("real");
+
+                    b.Property<float?>("DiscreteClipFr")
+                        .HasColumnType("real");
+
                     b.Property<int?>("DrawnByPlayerId")
                         .HasColumnType("int");
 
@@ -235,6 +223,18 @@ namespace NHLApp.Infrastructure.Migrations
 
                     b.Property<int?>("GoalieInNetId")
                         .HasColumnType("int");
+
+                    b.Property<float?>("HighlightClip")
+                        .HasColumnType("real");
+
+                    b.Property<float?>("HighlightClipFr")
+                        .HasColumnType("real");
+
+                    b.Property<string>("HighlightClipSharingUrl")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("HighlightClipSharingUrlFr")
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<int?>("HitteePlayerId")
                         .HasColumnType("int");
@@ -262,6 +262,7 @@ namespace NHLApp.Infrastructure.Migrations
                         .HasColumnType("int");
 
                     b.Property<string>("PeriodType")
+                        .IsRequired()
                         .HasMaxLength(20)
                         .HasColumnType("nvarchar(20)");
 
@@ -293,6 +294,7 @@ namespace NHLApp.Infrastructure.Migrations
                         .HasColumnType("nvarchar(50)");
 
                     b.Property<string>("SituationCode")
+                        .IsRequired()
                         .HasMaxLength(10)
                         .HasColumnType("nvarchar(10)");
 
@@ -300,10 +302,12 @@ namespace NHLApp.Infrastructure.Migrations
                         .HasColumnType("int");
 
                     b.Property<string>("TimeInPeriod")
+                        .IsRequired()
                         .HasMaxLength(10)
                         .HasColumnType("nvarchar(10)");
 
                     b.Property<string>("TimeRemaining")
+                        .IsRequired()
                         .HasMaxLength(10)
                         .HasColumnType("nvarchar(10)");
 
@@ -311,6 +315,7 @@ namespace NHLApp.Infrastructure.Migrations
                         .HasColumnType("int");
 
                     b.Property<string>("TypeDescKey")
+                        .IsRequired()
                         .HasMaxLength(50)
                         .HasColumnType("nvarchar(50)");
 
@@ -347,68 +352,67 @@ namespace NHLApp.Infrastructure.Migrations
                         .HasMaxLength(5)
                         .HasColumnType("nvarchar(5)");
 
-                    b.Property<int?>("EvenStrengthGoalsAgainst")
+                    b.Property<int>("EvenStrengthGoalsAgainst")
                         .HasColumnType("int");
 
                     b.Property<string>("EvenStrengthShotsAgainst")
+                        .IsRequired()
                         .HasMaxLength(15)
                         .HasColumnType("nvarchar(15)");
 
                     b.Property<int>("GameId")
                         .HasColumnType("int");
 
-                    b.Property<int?>("GoalsAgainst")
+                    b.Property<int>("GoalsAgainst")
                         .HasColumnType("int");
 
-                    b.Property<int?>("Pim")
+                    b.Property<int>("Pim")
                         .HasColumnType("int");
 
                     b.Property<int>("PlayerId")
                         .HasColumnType("int");
 
-                    b.Property<string>("PlayerName")
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<string>("Position")
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<int?>("PowerPlayGoalsAgainst")
+                    b.Property<int>("PowerPlayGoalsAgainst")
                         .HasColumnType("int");
 
                     b.Property<string>("PowerPlayShotsAgainst")
+                        .IsRequired()
                         .HasMaxLength(15)
                         .HasColumnType("nvarchar(15)");
 
-                    b.Property<float?>("SavePctg")
+                    b.Property<float>("SavePctg")
                         .HasColumnType("real");
 
                     b.Property<string>("SaveShotsAgainst")
+                        .IsRequired()
                         .HasMaxLength(15)
                         .HasColumnType("nvarchar(15)");
 
-                    b.Property<int?>("Saves")
+                    b.Property<int>("Saves")
                         .HasColumnType("int");
 
-                    b.Property<int?>("ShorthandedGoalsAgainst")
+                    b.Property<int>("ShorthandedGoalsAgainst")
                         .HasColumnType("int");
 
                     b.Property<string>("ShorthandedShotsAgainst")
+                        .IsRequired()
                         .HasMaxLength(15)
                         .HasColumnType("nvarchar(15)");
 
-                    b.Property<int?>("ShotsAgainst")
+                    b.Property<int>("ShotsAgainst")
                         .HasColumnType("int");
 
-                    b.Property<bool?>("Starter")
+                    b.Property<bool>("Starter")
                         .HasColumnType("bit");
 
-                    b.Property<int?>("SweaterNumber")
+                    b.Property<int>("SweaterNumber")
                         .HasColumnType("int");
 
                     b.Property<int>("TeamId")
                         .HasColumnType("int");
 
                     b.Property<string>("Toi")
+                        .IsRequired()
                         .HasMaxLength(10)
                         .HasColumnType("nvarchar(10)");
 
@@ -527,65 +531,64 @@ namespace NHLApp.Infrastructure.Migrations
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
 
-                    b.Property<int?>("Assists")
+                    b.Property<int>("Assists")
                         .HasColumnType("int");
 
-                    b.Property<int?>("BlockedShots")
+                    b.Property<int>("BlockedShots")
                         .HasColumnType("int");
 
-                    b.Property<float?>("FaceoffWinningPctg")
+                    b.Property<float>("FaceoffWinningPctg")
                         .HasColumnType("real");
 
                     b.Property<int>("GameId")
                         .HasColumnType("int");
 
-                    b.Property<int?>("Giveaways")
+                    b.Property<int>("Giveaways")
                         .HasColumnType("int");
 
-                    b.Property<int?>("Goals")
+                    b.Property<int>("Goals")
                         .HasColumnType("int");
 
-                    b.Property<int?>("Hits")
+                    b.Property<int>("Hits")
                         .HasColumnType("int");
 
-                    b.Property<int?>("Pim")
+                    b.Property<int>("Pim")
                         .HasColumnType("int");
 
                     b.Property<int>("PlayerId")
                         .HasColumnType("int");
 
-                    b.Property<string>("PlayerName")
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<int?>("PlusMinus")
+                    b.Property<int>("PlusMinus")
                         .HasColumnType("int");
 
-                    b.Property<int?>("Points")
+                    b.Property<int>("Points")
                         .HasColumnType("int");
 
                     b.Property<string>("Position")
+                        .IsRequired()
                         .HasMaxLength(5)
                         .HasColumnType("nvarchar(5)");
 
-                    b.Property<int?>("PowerPlayGoals")
+                    b.Property<int>("PowerPlayGoals")
                         .HasColumnType("int");
 
-                    b.Property<int?>("Shifts")
+                    b.Property<int>("Shifts")
                         .HasColumnType("int");
 
-                    b.Property<int?>("Sog")
+                    b.Property<int>("Sog")
                         .HasColumnType("int");
 
-                    b.Property<int?>("SweaterNumber")
+                    b.Property<int>("SweaterNumber")
                         .HasColumnType("int");
 
-                    b.Property<int?>("Takeaways")
+                    b.Property<int>("Takeaways")
                         .HasColumnType("int");
 
                     b.Property<int>("TeamId")
                         .HasColumnType("int");
 
                     b.Property<string>("Toi")
+                        .IsRequired()
                         .HasMaxLength(10)
                         .HasColumnType("nvarchar(10)");
 

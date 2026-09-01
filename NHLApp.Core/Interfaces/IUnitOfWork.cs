@@ -22,6 +22,9 @@ namespace NHLApp.Domain.Interfaces
         DbSet<PlayerAwards> PlayerAwards { get; }
         DbSet<SeasonTotal> SeasonTotals { get; }
         DbSet<Game> Games { get; }
+        DbSet<GamePlay> GamePlays { get; }
+        DbSet<GoalieGameStat> GoalieGameStats { get; }
+        DbSet<PlayerGameStat> PlayerGameStats { get; }
 
         ChangeTracker ChangeTracker { get; }
 

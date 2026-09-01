@@ -82,6 +82,12 @@ namespace NHLApp.Worker
             await transformService.TransformWeeklySchedulesAsync(context);
             _logger.LogInformationWithColor("Transformation cédules hebdomadaires en GameIds terminée", ConsoleColor.Green);
 
+            await transformService.TransformBoxscoresAsync(context);
+            _logger.LogInformationWithColor("Transformation des box scores terminée", ConsoleColor.Green);
+
+            await transformService.TransformPlayByPlayAsync(context);
+            _logger.LogInformationWithColor("Transformation des play-by-play terminée", ConsoleColor.Green);
+
 
             // Log the end of the worker and record the end time
             context.FinishedAt = DateTime.Now;

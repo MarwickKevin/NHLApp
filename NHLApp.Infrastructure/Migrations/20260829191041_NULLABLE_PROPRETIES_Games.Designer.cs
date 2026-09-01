@@ -12,8 +12,8 @@ using NHLApp.Infrastructure.Data;
 namespace NHLApp.Infrastructure.Migrations
 {
     [DbContext(typeof(NHLAppDbContext))]
-    [Migration("20260807072544_INIT")]
-    partial class INIT
+    [Migration("20260829191041_NULLABLE_PROPRETIES_Games")]
+    partial class NULLABLE_PROPRETIES_Games
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -65,12 +65,363 @@ namespace NHLApp.Infrastructure.Migrations
 
             modelBuilder.Entity("NHLApp.Domain.Entities.Game", b =>
                 {
-                    b.Property<long>("Id")
-                        .HasColumnType("bigint");
+                    b.Property<int>("Id")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("AwayScore")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("AwaySog")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("AwayTeamId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("GameDate")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<string>("GameScheduleState")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("nvarchar(10)");
+
+                    b.Property<string>("GameState")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("nvarchar(10)");
+
+                    b.Property<int?>("GameType")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("HomeScore")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("HomeSog")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("HomeTeamId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("LastPeriodType")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<bool?>("LimitedScoring")
+                        .HasColumnType("bit");
+
+                    b.Property<bool?>("OtInUse")
+                        .HasColumnType("bit");
+
+                    b.Property<int?>("OtPeriods")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("RegPeriods")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("Season")
+                        .HasColumnType("int");
+
+                    b.Property<bool?>("ShootoutInUse")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("SpecialEventName")
+                        .HasMaxLength(150)
+                        .HasColumnType("nvarchar(150)");
+
+                    b.Property<int?>("SpecialEventParentId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("StartTimeUTC")
+                        .IsRequired()
+                        .HasMaxLength(35)
+                        .HasColumnType("nvarchar(35)");
+
+                    b.Property<bool?>("Tie")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("VenueDefault")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("nvarchar(150)");
+
+                    b.Property<string>("VenueLocation")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
 
                     b.HasKey("Id");
 
                     b.ToTable("Games");
+                });
+
+            modelBuilder.Entity("NHLApp.Domain.Entities.GamePlay", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<int?>("Assist1PlayerId")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("Assist1PlayerTotal")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("Assist2PlayerId")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("Assist2PlayerTotal")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("Assist3PlayerId")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("Assist3PlayerTotal")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("AwaySOG")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("AwayScore")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("BlockingPlayerId")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("CommittedByPlayerId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("DetailsDescKey")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("DetailsTypeCode")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<float?>("DiscreteClip")
+                        .HasColumnType("real");
+
+                    b.Property<float?>("DiscreteClipFr")
+                        .HasColumnType("real");
+
+                    b.Property<int?>("DrawnByPlayerId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("EventId")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("EventOwnerTeamId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("GameId")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("GoalInGame")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("GoalieInNetId")
+                        .HasColumnType("int");
+
+                    b.Property<float?>("HighlightClip")
+                        .HasColumnType("real");
+
+                    b.Property<float?>("HighlightClipFr")
+                        .HasColumnType("real");
+
+                    b.Property<string>("HighlightClipSharingUrl")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("HighlightClipSharingUrlFr")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<int?>("HitteePlayerId")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("HittingPlayerId")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("HomeSOG")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("HomeScore")
+                        .HasColumnType("int");
+
+                    b.Property<string>("HomeTeamDefendingSide")
+                        .HasMaxLength(5)
+                        .HasColumnType("nvarchar(5)");
+
+                    b.Property<int?>("LosingPlayerId")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("PenaltyDuration")
+                        .HasColumnType("int");
+
+                    b.Property<int>("PeriodNumber")
+                        .HasColumnType("int");
+
+                    b.Property<string>("PeriodType")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<int?>("PlayerId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Reason")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<int?>("ScoringPlayerId")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("ScoringPlayerTotal")
+                        .HasColumnType("int");
+
+                    b.Property<string>("SecondaryReason")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<int?>("ServedByPlayerId")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("ShootingPlayerId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("ShotType")
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<string>("SituationCode")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("nvarchar(10)");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("int");
+
+                    b.Property<string>("TimeInPeriod")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("nvarchar(10)");
+
+                    b.Property<string>("TimeRemaining")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("nvarchar(10)");
+
+                    b.Property<int>("TypeCode")
+                        .HasColumnType("int");
+
+                    b.Property<string>("TypeDescKey")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<int?>("WinningPlayerId")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("XCoord")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("YCoord")
+                        .HasColumnType("int");
+
+                    b.Property<string>("ZoneCode")
+                        .HasMaxLength(5)
+                        .HasColumnType("nvarchar(5)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("GameId", "EventId")
+                        .IsUnique();
+
+                    b.ToTable("GamePlays");
+                });
+
+            modelBuilder.Entity("NHLApp.Domain.Entities.GoalieGameStat", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Decision")
+                        .HasMaxLength(5)
+                        .HasColumnType("nvarchar(5)");
+
+                    b.Property<int>("EvenStrengthGoalsAgainst")
+                        .HasColumnType("int");
+
+                    b.Property<string>("EvenStrengthShotsAgainst")
+                        .IsRequired()
+                        .HasMaxLength(15)
+                        .HasColumnType("nvarchar(15)");
+
+                    b.Property<int>("GameId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("GoalsAgainst")
+                        .HasColumnType("int");
+
+                    b.Property<int>("Pim")
+                        .HasColumnType("int");
+
+                    b.Property<int>("PlayerId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("PowerPlayGoalsAgainst")
+                        .HasColumnType("int");
+
+                    b.Property<string>("PowerPlayShotsAgainst")
+                        .IsRequired()
+                        .HasMaxLength(15)
+                        .HasColumnType("nvarchar(15)");
+
+                    b.Property<float>("SavePctg")
+                        .HasColumnType("real");
+
+                    b.Property<string>("SaveShotsAgainst")
+                        .IsRequired()
+                        .HasMaxLength(15)
+                        .HasColumnType("nvarchar(15)");
+
+                    b.Property<int>("Saves")
+                        .HasColumnType("int");
+
+                    b.Property<int>("ShorthandedGoalsAgainst")
+                        .HasColumnType("int");
+
+                    b.Property<string>("ShorthandedShotsAgainst")
+                        .IsRequired()
+                        .HasMaxLength(15)
+                        .HasColumnType("nvarchar(15)");
+
+                    b.Property<int>("ShotsAgainst")
+                        .HasColumnType("int");
+
+                    b.Property<bool>("Starter")
+                        .HasColumnType("bit");
+
+                    b.Property<int>("SweaterNumber")
+                        .HasColumnType("int");
+
+                    b.Property<int>("TeamId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Toi")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("nvarchar(10)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("GameId", "PlayerId", "TeamId")
+                        .IsUnique();
+
+                    b.ToTable("GoalieGameStats");
                 });
 
             modelBuilder.Entity("NHLApp.Domain.Entities.Player", b =>
@@ -170,6 +521,83 @@ namespace NHLApp.Infrastructure.Migrations
                     b.HasIndex("TrophyId");
 
                     b.ToTable("PlayerAwards");
+                });
+
+            modelBuilder.Entity("NHLApp.Domain.Entities.PlayerGameStat", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("Assists")
+                        .HasColumnType("int");
+
+                    b.Property<int>("BlockedShots")
+                        .HasColumnType("int");
+
+                    b.Property<float>("FaceoffWinningPctg")
+                        .HasColumnType("real");
+
+                    b.Property<int>("GameId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("Giveaways")
+                        .HasColumnType("int");
+
+                    b.Property<int>("Goals")
+                        .HasColumnType("int");
+
+                    b.Property<int>("Hits")
+                        .HasColumnType("int");
+
+                    b.Property<int>("Pim")
+                        .HasColumnType("int");
+
+                    b.Property<int>("PlayerId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("PlusMinus")
+                        .HasColumnType("int");
+
+                    b.Property<int>("Points")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Position")
+                        .IsRequired()
+                        .HasMaxLength(5)
+                        .HasColumnType("nvarchar(5)");
+
+                    b.Property<int>("PowerPlayGoals")
+                        .HasColumnType("int");
+
+                    b.Property<int>("Shifts")
+                        .HasColumnType("int");
+
+                    b.Property<int>("Sog")
+                        .HasColumnType("int");
+
+                    b.Property<int>("SweaterNumber")
+                        .HasColumnType("int");
+
+                    b.Property<int>("Takeaways")
+                        .HasColumnType("int");
+
+                    b.Property<int>("TeamId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Toi")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("nvarchar(10)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("GameId", "PlayerId", "TeamId")
+                        .IsUnique();
+
+                    b.ToTable("PlayerGameStats");
                 });
 
             modelBuilder.Entity("NHLApp.Domain.Entities.RawApiResponse", b =>
@@ -387,6 +815,24 @@ namespace NHLApp.Infrastructure.Migrations
                     b.Navigation("Player");
                 });
 
+            modelBuilder.Entity("NHLApp.Domain.Entities.GamePlay", b =>
+                {
+                    b.HasOne("NHLApp.Domain.Entities.Game", null)
+                        .WithMany()
+                        .HasForeignKey("GameId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("NHLApp.Domain.Entities.GoalieGameStat", b =>
+                {
+                    b.HasOne("NHLApp.Domain.Entities.Game", null)
+                        .WithMany()
+                        .HasForeignKey("GameId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("NHLApp.Domain.Entities.PlayerAwards", b =>
                 {
                     b.HasOne("NHLApp.Domain.Entities.Player", "Player")
@@ -412,6 +858,15 @@ namespace NHLApp.Infrastructure.Migrations
                     b.Navigation("Season");
 
                     b.Navigation("Trophy");
+                });
+
+            modelBuilder.Entity("NHLApp.Domain.Entities.PlayerGameStat", b =>
+                {
+                    b.HasOne("NHLApp.Domain.Entities.Game", null)
+                        .WithMany()
+                        .HasForeignKey("GameId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("NHLApp.Domain.Entities.SeasonTotal", b =>

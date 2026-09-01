@@ -355,7 +355,7 @@ namespace NHLApp.Application.Services
         /// </summary>
         private bool IsFresh(DateTime? fetchedAt)
         {
-            return fetchedAt.HasValue && fetchedAt.Value > DateTime.UtcNow.AddDays(-1);
+            return fetchedAt.HasValue && fetchedAt.Value > DateTime.UtcNow.AddDays(-100);
         }
 
         /// <summary>
@@ -585,7 +585,7 @@ namespace NHLApp.Application.Services
         /// </summary>
         private List<int> GetAllGameIdsFromMetadata()
         {
-            var gameIds = new List<long>();
+            var gameIds = new List<int>();
             var records = _unitOfWork.RawApiResponses
                 .Where(r => r.Endpoint == "schedule" && !string.IsNullOrWhiteSpace(r.Metadata))
                 .ToList();
@@ -599,7 +599,7 @@ namespace NHLApp.Application.Services
                     {
                         foreach (var e in idsElement.EnumerateArray())
                         {
-                            if (e.TryGetInt64(out var id))
+                            if (e.TryGetInt32(out var id))
                             {
                                 gameIds.Add(id);
                             }
@@ -608,7 +608,7 @@ namespace NHLApp.Application.Services
                 }
                 catch { _logger.LogErrorWithColor("Error parsing GameIds from schedule metadata", ConsoleColor.Red); }
             }
-            return gameIds.Distinct().Select(id => (int)id).ToList();
+            return gameIds.Distinct().Select(id => id).ToList();
         }
 
         #endregion

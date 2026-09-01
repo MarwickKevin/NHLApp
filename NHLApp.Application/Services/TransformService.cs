@@ -3,6 +3,8 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Identity.Client;
 using NHLApp.Application.Contexts;
 using NHLApp.Application.DTOs;
+using NHLApp.Application.DTOs.BoxscoreDTOs;
+using NHLApp.Application.DTOs.PlaybyPlayDTOs;
 using NHLApp.Application.Extensions;
 using NHLApp.Domain.Entities;
 using NHLApp.Domain.Interfaces;
@@ -430,10 +432,345 @@ namespace NHLApp.Application.Services
                 keySelector: gameDto => gameDto.Id,
                 mapEntity: gameDto => new Game
                 {
-                    Id = gameDto.Id
+                    Id = (int)gameDto.Id
                 },
                 dbSet: _unitOfWork.Games);
         }
+
+        /// <summary>
+        /// Transforms raw boxscore JSON payloads into structured PlayerGameStat and GoalieGameStat entities in the database, including granular goalie shots against context.
+        /// </summary>
+        /// <returns></returns>
+        public async Task TransformBoxscoresAsync(WorkerContext context)
+        {
+            HashSet<(int GameId, int PlayerId, int TeamId)> knownStats = await GetKnownKeysAsync<PlayerGameStat, (int GameId, int PlayerId, int TeamId)>(gs => ValueTuple.Create(gs.GameId, gs.PlayerId, gs.TeamId));
+            HashSet<(int GameId, int PlayerId, int TeamId)> knownGoalieStats = await GetKnownKeysAsync<GoalieGameStat, (int GameId, int PlayerId, int TeamId)>(gs => ValueTuple.Create(gs.GameId, gs.PlayerId, gs.TeamId));
+
+            await ProcessEndpointAsync<NhlBoxscoreRootDTO>(
+                context,
+                endpoint: "boxscore",
+                operationName: "TransformBoxscores",
+                processRootAsync: root =>
+                {
+                    if (!root.Id.HasValue) return Task.FromResult(false);
+
+                    int gameId = root.Id.Value;
+                    bool itemChanges = false;
+
+                    // Fetch or create Game record to hydrate game-level metadata
+                    var game = _unitOfWork.Games.FirstOrDefault(g => g.Id == gameId);
+                    if (game == null)
+                    {
+                        game = new Game { Id = gameId };
+                        _unitOfWork.Games.Add(game);
+                        itemChanges = true;
+                    }
+
+                    // Hydrate/Update Game metadata fields available from Boxscore DTO
+                    game.Season = root.Season ?? game.Season;
+                    game.GameType = root.GameType ?? game.GameType;
+                    game.LimitedScoring = root.LimitedScoring ?? game.LimitedScoring;
+                    game.GameDate = root.GameDate ?? game.GameDate;
+                    game.VenueDefault = root.Venue?.Default ?? game.VenueDefault;
+                    game.VenueLocation = root.VenueLocation?.Default ?? game.VenueLocation;
+                    game.StartTimeUTC = root.StartTimeUTC ?? game.StartTimeUTC;
+                    game.GameState = root.GameState ?? game.GameState;
+                    game.GameScheduleState = root.GameScheduleState ?? game.GameScheduleState;
+                    game.RegPeriods = root.RegPeriods ?? game.RegPeriods;
+                    game.AwayTeamId = root.AwayTeam?.Id ?? game.AwayTeamId;
+                    game.AwayScore = root.AwayTeam?.Score ?? game.AwayScore;
+                    game.AwaySog = root.AwayTeam?.Sog ?? game.AwaySog;
+                    game.HomeTeamId = root.HomeTeam?.Id ?? game.HomeTeamId;
+                    game.HomeScore = root.HomeTeam?.Score ?? game.HomeScore;
+                    game.HomeSog = root.HomeTeam?.Sog ?? game.HomeSog;
+
+                    // PeriodDescriptor mapping
+                    if (root.PeriodDescriptor != null)
+                    {
+                        game.PeriodNumber = root.PeriodDescriptor.Number ?? game.PeriodNumber;
+                        game.PeriodType = root.PeriodDescriptor.PeriodType ?? game.PeriodType;
+                        game.MaxRegulationPeriods = root.PeriodDescriptor.MaxRegulationPeriods ?? game.MaxRegulationPeriods;
+                        game.PeriodDescriptorOtPeriods = root.PeriodDescriptor.OtPeriods ?? game.PeriodDescriptorOtPeriods;
+                    }
+
+                    // Clock mapping
+                    if (root.Clock != null)
+                    {
+                        game.ClockTimeRemaining = root.Clock.TimeRemaining ?? game.ClockTimeRemaining;
+                        game.ClockSecondsRemaining = root.Clock.SecondsRemaining ?? game.ClockSecondsRemaining;
+                        game.ClockRunning = root.Clock.Running ?? game.ClockRunning;
+                        game.ClockInIntermission = root.Clock.InIntermission ?? game.ClockInIntermission;
+                    }
+
+                    // SpecialEvent mapping
+                    if (root.SpecialEvent != null)
+                    {
+                        game.SpecialEventParentId = root.SpecialEvent.ParentId ?? game.SpecialEventParentId;
+                        game.SpecialEventName = root.SpecialEvent.Name?.Default ?? game.SpecialEventName;
+                        game.SpecialEventLightLogoUrl = root.SpecialEvent.LightLogoUrl?.Default ?? game.SpecialEventLightLogoUrl;
+                    }
+
+                    // GameOutcome mapping
+                    if (root.GameOutcome != null)
+                    {
+                        game.LastPeriodType = root.GameOutcome.LastPeriodType ?? game.LastPeriodType;
+                        game.OtPeriods = root.GameOutcome.OtPeriods ?? game.OtPeriods;
+                        game.Tie = root.GameOutcome.Tie ?? game.Tie;
+                    }
+
+                    var statsContainer = root.PlayerByGameStats;
+                    if (statsContainer == null) return Task.FromResult(itemChanges);
+
+                    // Process both Away and Home teams explicitly typed to avoid compiler inference mismatches
+                    var teamsData = new[]
+                    {
+                    new { TeamId = statsContainer.AwayTeam?.Id ?? root.AwayTeam?.Id ?? 0, Forwards = statsContainer.AwayTeam?.Forwards, Defensemen = statsContainer.AwayTeam?.Defense, Goalies = statsContainer.AwayTeam?.Goalies },
+                    new { TeamId = statsContainer.HomeTeam?.Id ?? root.HomeTeam?.Id ?? 0, Forwards = statsContainer.HomeTeam?.Forwards, Defensemen = statsContainer.HomeTeam?.Defense, Goalies = statsContainer.HomeTeam?.Goalies }
+                    };
+
+                    foreach (var teamObj in teamsData)
+                    {
+                        if (teamObj.TeamId == 0) continue;
+                        int teamId = teamObj.TeamId;
+
+                        // 1. Process Forwards
+                        if (teamObj.Forwards != null)
+                        {
+                            foreach (var f in teamObj.Forwards)
+                            {
+                                if (!f.PlayerId.HasValue) continue;
+                                if (knownStats.Contains((gameId, f.PlayerId.Value, teamId))) continue;
+
+                                _unitOfWork.PlayerGameStats.Add(new PlayerGameStat
+                                {
+                                    GameId = gameId,
+                                    PlayerId = f.PlayerId.Value,
+                                    TeamId = teamId,
+                                    SweaterNumber = f.SweaterNumber ?? 0,
+                                    PlayerName = f.Name?.Default ?? string.Empty,
+                                    Position = f.Position ?? string.Empty,
+                                    Goals = f.Goals ?? 0,
+                                    Assists = f.Assists ?? 0,
+                                    Points = f.Points ?? 0,
+                                    PlusMinus = f.PlusMinus ?? 0,
+                                    Pim = f.Pim ?? 0,
+                                    Hits = f.Hits ?? 0,
+                                    PowerPlayGoals = f.PowerPlayGoals ?? 0,
+                                    Sog = f.Sog ?? 0,
+                                    FaceoffWinningPctg = f.FaceoffWinningPctg ?? 0f,
+                                    Toi = f.Toi ?? string.Empty,
+                                    BlockedShots = f.BlockedShots ?? 0,
+                                    Shifts = f.Shifts ?? 0,
+                                    Giveaways = f.Giveaways ?? 0,
+                                    Takeaways = f.Takeaways ?? 0
+                                });
+
+                                knownStats.Add((gameId, f.PlayerId.Value, teamId));
+                                itemChanges = true;
+                            }
+                        }
+
+                        // 2. Process Defensemen
+                        if (teamObj.Defensemen != null)
+                        {
+                            foreach (var d in teamObj.Defensemen)
+                            {
+                                if (!d.PlayerId.HasValue) continue;
+                                if (knownStats.Contains((gameId, d.PlayerId.Value, teamId))) continue;
+
+                                _unitOfWork.PlayerGameStats.Add(new PlayerGameStat
+                                {
+                                    GameId = gameId,
+                                    PlayerId = d.PlayerId.Value,
+                                    TeamId = teamId,
+                                    SweaterNumber = d.SweaterNumber ?? 0,
+                                    PlayerName = d.Name?.Default ?? string.Empty,
+                                    Position = d.Position ?? string.Empty,
+                                    Goals = d.Goals ?? 0,
+                                    Assists = d.Assists ?? 0,
+                                    Points = d.Points ?? 0,
+                                    PlusMinus = d.PlusMinus ?? 0,
+                                    Pim = d.Pim ?? 0,
+                                    Hits = d.Hits ?? 0,
+                                    PowerPlayGoals = d.PowerPlayGoals ?? 0,
+                                    Sog = d.Sog ?? 0,
+                                    FaceoffWinningPctg = d.FaceoffWinningPctg ?? 0f,
+                                    Toi = d.Toi ?? string.Empty,
+                                    BlockedShots = d.BlockedShots ?? 0,
+                                    Shifts = d.Shifts ?? 0,
+                                    Giveaways = d.Giveaways ?? 0,
+                                    Takeaways = d.Takeaways ?? 0
+                                });
+
+                                knownStats.Add((gameId, d.PlayerId.Value, teamId));
+                                itemChanges = true;
+                            }
+                        }
+
+                        // 3. Process Goalies
+                        if (teamObj.Goalies != null)
+                        {
+                            foreach (var g in teamObj.Goalies)
+                            {
+                                if (!g.PlayerId.HasValue) continue;
+                                if (knownGoalieStats.Contains((gameId, g.PlayerId.Value, teamId))) continue;
+
+                                _unitOfWork.GoalieGameStats.Add(new GoalieGameStat
+                                {
+                                    GameId = gameId,
+                                    PlayerId = g.PlayerId.Value,
+                                    TeamId = teamId,
+                                    SweaterNumber = g.SweaterNumber ?? 0,
+                                    PlayerName = g.Name?.Default ?? string.Empty,
+                                    Position = g.Position ?? string.Empty,
+                                    Toi = g.Toi ?? string.Empty,
+                                    Starter = g.Starter ?? false,
+                                    ShotsAgainst = g.ShotsAgainst ?? 0,
+                                    Saves = g.Saves ?? 0,
+                                    GoalsAgainst = g.GoalsAgainst ?? 0,
+                                    SavePctg = g.SavePctg ?? 0f,
+                                    Pim = g.Pim ?? 0,
+                                    Decision = g.Decision,
+                                    EvenStrengthShotsAgainst = g.EvenStrengthShotsAgainst ?? string.Empty,
+                                    PowerPlayShotsAgainst = g.PowerPlayShotsAgainst ?? string.Empty,
+                                    ShorthandedShotsAgainst = g.ShorthandedShotsAgainst ?? string.Empty,
+                                    SaveShotsAgainst = g.SaveShotsAgainst ?? string.Empty,
+                                    EvenStrengthGoalsAgainst = g.EvenStrengthGoalsAgainst ?? 0,
+                                    PowerPlayGoalsAgainst = g.PowerPlayGoalsAgainst ?? 0,
+                                    ShorthandedGoalsAgainst = g.ShorthandedGoalsAgainst ?? 0
+                                });
+
+                                knownGoalieStats.Add((gameId, g.PlayerId.Value, teamId));
+                                itemChanges = true;
+                            }
+                        }
+                    }
+
+                    return Task.FromResult(itemChanges);
+                });
+        }
+
+        /// <summary>
+        /// Transforms raw play-by-play JSON payloads into structured Game, SpecialEvent, and GamePlay entities in the database.
+        /// </summary>
+        /// <returns></returns>
+        public async Task TransformPlayByPlayAsync(WorkerContext context)
+        {
+            HashSet<int> validGameIds = await GetKnownKeysAsync<Game, int>(g => g.Id);
+            HashSet<(int GameId, int EventId)> knownPlays = await GetKnownKeysAsync<GamePlay, (int GameId, int EventId)>(gp => ValueTuple.Create(gp.GameId, gp.EventId));
+
+            await ProcessEndpointAsync<NhlPlayByPlayRootDTO>(
+                context,
+                endpoint: "play-by-play",
+                operationName: "TransformPlayByPlay",
+                processRootAsync: root =>
+                {
+                    if (!root.Id.HasValue) return Task.FromResult(false);
+
+                    int gameId = root.Id.Value;
+
+                    // Skip if parent game hasn't been seeded to prevent foreign key issues
+                    if (!validGameIds.Contains(gameId)) return Task.FromResult(false);
+
+                    bool itemChanges = false;
+
+                    // 1. Enrich PBP-specific Rule Flags on Base Game Entity
+                    var game = _unitOfWork.Games.FirstOrDefault(g => g.Id == gameId);
+                    if (game != null)
+                    {
+                        game.ShootoutInUse = root.ShootoutInUse ?? game.ShootoutInUse;
+                        game.OtInUse = root.OtInUse ?? game.OtInUse;
+                        
+                        if (root.PeriodDescriptor != null)
+                        {
+                            game.PeriodNumber = root.PeriodDescriptor.Number ?? game.PeriodNumber;
+                            game.PeriodType = root.PeriodDescriptor.PeriodType ?? game.PeriodType;
+                            game.MaxRegulationPeriods = root.PeriodDescriptor.MaxRegulationPeriods ?? game.MaxRegulationPeriods;
+                            game.PeriodDescriptorOtPeriods = root.PeriodDescriptor.OtPeriods ?? game.PeriodDescriptorOtPeriods;
+                        }
+                    }
+
+                    // 2. Map Granular Play-by-Play Events
+                    if (root.Plays != null)
+                    {
+                        foreach (var playDto in root.Plays)
+                        {
+                            if (!playDto.EventId.HasValue) continue;
+                            if (knownPlays.Contains((gameId, playDto.EventId.Value))) continue;
+
+                            var details = playDto.Details;
+                            var periodDesc = playDto.PeriodDescriptor;
+
+                            var playEntity = new GamePlay
+                            {
+                                GameId = gameId,
+                                EventId = playDto.EventId.Value,
+                                PeriodNumber = periodDesc?.Number ?? 0,
+                                PeriodType = periodDesc?.PeriodType ?? string.Empty,
+                                TimeInPeriod = playDto.TimeInPeriod ?? string.Empty,
+                                TimeRemaining = playDto.TimeRemaining ?? string.Empty,
+                                TypeCode = playDto.TypeCode ?? 0,
+                                TypeDescKey = playDto.TypeDescKey ?? string.Empty,
+                                SortOrder = playDto.SortOrder ?? 0,
+                                SituationCode = playDto.SituationCode ?? string.Empty,
+                                HomeTeamDefendingSide = playDto.HomeTeamDefendingSide,
+
+                                // Details: Ownership & Scoring Context
+                                EventOwnerTeamId = details?.EventOwnerTeamId,
+                                AwayScore = details?.AwayScore,
+                                HomeScore = details?.HomeScore,
+                                AwaySOG = details?.AwaySOG,
+                                HomeSOG = details?.HomeSOG,
+
+                                // Details: Shot & Goal Tracking
+                                ShotType = details?.ShotType,
+                                ShootingPlayerId = details?.ShootingPlayerId,
+                                ScoringPlayerId = details?.ScoringPlayerId,
+                                ScoringPlayerTotal = details?.ScoringPlayerTotal,
+                                Assist1PlayerId = details?.Assist1PlayerId,
+                                Assist1PlayerTotal = details?.Assist1PlayerTotal,
+                                Assist2PlayerId = details?.Assist2PlayerId,
+                                Assist2PlayerTotal = details?.Assist2PlayerTotal,
+                                Assist3PlayerId = details?.Assist3PlayerId,
+                                Assist3PlayerTotal = details?.Assist3PlayerTotal,
+                                GoalieInNetId = details?.GoalieInNetId,
+                                GoalInGame = details?.GoalInGame,
+
+                                // Details: Physical & Faceoff Events
+                                HittingPlayerId = details?.HittingPlayerId,
+                                HitteePlayerId = details?.HitteePlayerId,
+                                BlockingPlayerId = details?.BlockingPlayerId,
+                                WinningPlayerId = details?.WinningPlayerId,
+                                LosingPlayerId = details?.LosingPlayerId,
+
+                                // Details: Penalties
+                                CommittedByPlayerId = details?.CommittedByPlayerId,
+                                DrawnByPlayerId = details?.DrawnByPlayerId,
+                                ServedByPlayerId = details?.ServedByPlayerId,
+                                PenaltyDuration = details?.Duration,
+                                Reason = details?.Reason,
+                                SecondaryReason = details?.SecondaryReason,
+
+                                // Details: Spatial Coordinates
+                                XCoord = details?.XCoord,
+                                YCoord = details?.YCoord,
+                                ZoneCode = details?.ZoneCode,
+
+                                DetailsTypeCode = details?.TypeCode,
+                                DetailsDescKey = details?.DescKey,
+                                PlayerId = details?.PlayerId,
+                            };
+
+                            _unitOfWork.GamePlays.Add(playEntity);
+                            knownPlays.Add((gameId, playDto.EventId.Value));
+                            itemChanges = true;
+                        }
+                    }
+
+                    return Task.FromResult(itemChanges);
+                });
+        }
+
 
         #endregion
 
@@ -535,7 +872,7 @@ namespace NHLApp.Application.Services
                 return await processRootAsync(root);
             });
         }
-        
+
 
         //--------------------------------------------------------------------------------
         // Use when each extracted item requires custom processing before being persisted:

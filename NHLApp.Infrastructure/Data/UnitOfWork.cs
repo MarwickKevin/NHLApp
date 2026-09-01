@@ -32,7 +32,10 @@ namespace NHLApp.Infrastructure.Data
         public DbSet<DraftDetail> DraftDetail => _context.DraftDetail;
         public DbSet<PlayerAwards> PlayerAwards => _context.PlayerAwards;
         public DbSet<SeasonTotal> SeasonTotals => _context.SeasonTotals;
-        public DbSet<Game> Games => _context.Games;
+        public DbSet<Game> Games => _context.Games; 
+        public DbSet<GamePlay> GamePlays => _context.GamePlays;
+        public DbSet<PlayerGameStat> PlayerGameStats => _context.PlayerGameStats;
+        public DbSet<GoalieGameStat> GoalieGameStats => _context.GoalieGameStats;
 
         public ChangeTracker ChangeTracker => _context.ChangeTracker;
 
