@@ -19,20 +19,21 @@ namespace NHLApp.Application.DTOs
         [property: JsonPropertyName("id")] int Id,
         [property: JsonPropertyName("firstName")] NhlLocalizedTextDTO FirstName,
         [property: JsonPropertyName("lastName")] NhlLocalizedTextDTO LastName
-        //[property: JsonPropertyName("positionCode")] string PositionCode,
-        //[property: JsonPropertyName("shootsCatches")] string? ShootsCatches,
-        //[property: JsonPropertyName("heightInCentimeters")] int? HeightInCentimeters,
-        //[property: JsonPropertyName("weightInKilograms")] int? WeightInKilograms,
-        //[property: JsonPropertyName("birthDate")] string? BirthDate,
-        //[property: JsonPropertyName("birthCity")] NhlLocalizedTextDTO? BirthCity,
-        //[property: JsonPropertyName("birthCountry")] string? BirthCountry,
 
-        ////Newer properties *
-        //[property: JsonPropertyName("headshot")] string? Headshot,
-        //[property: JsonPropertyName("sweaterNumber")] int? SweaterNumber,
-        //[property: JsonPropertyName("heightInInches")] int? HeightInInches,
-        //[property: JsonPropertyName("weightInPounds")] int? WeightInPounds,        
-        //[property: JsonPropertyName("birthStateProvince")] NhlLocalizedTextDTO? BirthStateProvince
+    //Unused (Implemented in PlayerLandingDTO)
+    //[property: JsonPropertyName("positionCode")] string PositionCode,
+    //[property: JsonPropertyName("shootsCatches")] string? ShootsCatches,
+    //[property: JsonPropertyName("heightInCentimeters")] int? HeightInCentimeters,
+    //[property: JsonPropertyName("weightInKilograms")] int? WeightInKilograms,
+    //[property: JsonPropertyName("birthDate")] string? BirthDate,
+    //[property: JsonPropertyName("birthCity")] NhlLocalizedTextDTO? BirthCity,
+    //[property: JsonPropertyName("birthCountry")] string? BirthCountry,
+
+    //[property: JsonPropertyName("headshot")] string? Headshot,
+    //[property: JsonPropertyName("sweaterNumber")] int? SweaterNumber,
+    //[property: JsonPropertyName("heightInInches")] int? HeightInInches,
+    //[property: JsonPropertyName("weightInPounds")] int? WeightInPounds,        
+    //[property: JsonPropertyName("birthStateProvince")] NhlLocalizedTextDTO? BirthStateProvince
     );
 
     

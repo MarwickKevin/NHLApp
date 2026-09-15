@@ -15,6 +15,8 @@ builder.Services.AddDbContext<NHLAppDbContext>(options =>
     )
 );
 
+builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
+
 builder.Services.AddHttpClient<INHLApiClient, NHLApiClient>();
 
 builder.Services.AddHostedService<Worker>();
@@ -22,8 +24,6 @@ builder.Services.AddHostedService<Worker>();
 builder.Services.AddScoped<ImportService>();
 
 builder.Services.AddScoped<TransformService>();
-
-builder.Services.AddScoped<RawDataStore>();
 
 builder.Services.AddScoped<WorkerContext>();
 

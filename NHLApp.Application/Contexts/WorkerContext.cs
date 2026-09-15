@@ -19,8 +19,5 @@ namespace NHLApp.Application.Contexts
         public int TotalTransformErrors { get; set; } = 0; 
 
         public TimeSpan Duration => (FinishedAt ?? DateTime.UtcNow) - StartedAt; 
-
-        public HashSet<int> PlayerIds { get; } = new();
-
     }
 }

@@ -1,12 +1,16 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Microsoft.Identity.Client;
 using NHLApp.Application.Contexts;
 using NHLApp.Application.DTOs;
+using NHLApp.Application.DTOs.BoxscoreDTOs;
+using NHLApp.Application.DTOs.PlaybyPlayDTOs;
 using NHLApp.Application.Extensions;
 using NHLApp.Domain.Entities;
 using NHLApp.Domain.Interfaces;
 using System.Linq.Expressions;
 using System.Numerics;
+using System.Runtime.Intrinsics.X86;
 
 namespace NHLApp.Application.Services
 {
@@ -159,7 +163,7 @@ namespace NHLApp.Application.Services
             var rawRecords = await _unitOfWork.RawApiResponses.Where(r => r.Endpoint == "roster").ToListAsync();
 
 
-            await ProcessBatchAsync(context, rawRecords, "TransformRosters", async raw =>
+            await ProcessBatchAsync(context, rawRecords, "TransformRosters", raw =>
             {
                 // Skip if the EntityId is not in the expected format ("roster-TEAMCODE-SEASONID")
                 string[] keyParts = raw.EntityId.Split('-');
@@ -171,7 +175,7 @@ namespace NHLApp.Application.Services
                         ConsoleColor.Red,
                         raw.EntityId,
                         context.TotalTransformErrors);
-                    return false;
+                    return Task.FromResult(false);
                 }
 
                 string teamTriCode = keyParts[keyParts.Length - 2].Trim().ToUpper();
@@ -183,7 +187,7 @@ namespace NHLApp.Application.Services
                         ConsoleColor.Red,
                         raw.EntityId,
                         context.TotalTransformErrors);
-                    return false;
+                    return Task.FromResult(false);
                 }
 
                 // Ensure the team and season exist in our database core tables before processing the roster
@@ -195,7 +199,7 @@ namespace NHLApp.Application.Services
                         ConsoleColor.Red,
                         raw.EntityId,
                         context.TotalTransformErrors);
-                    return false;
+                    return Task.FromResult(false);
                 }
 
                 // Automatically deserialize the entire nested structure using the DTO
@@ -207,7 +211,7 @@ namespace NHLApp.Application.Services
                         ConsoleColor.Red,
                         raw.EntityId,
                         context.TotalTransformErrors);
-                    return false;
+                    return Task.FromResult(false);
                 }
 
                 // Flatten the three positional lists into a single collection for processing
@@ -250,7 +254,7 @@ namespace NHLApp.Application.Services
                     existingRosters.Add((teamId, playerDto.Id, seasonId));
                     itemChanges = true;
                 }
-                return itemChanges;
+                return Task.FromResult(itemChanges);
             });
         }
 
@@ -407,7 +411,366 @@ namespace NHLApp.Application.Services
 
                     return Task.FromResult(itemChanges);
                 });
+
         }
+
+        /// <summary>
+        /// Transforms raw weekly schedule JSON payloads into basic Game entities containing only their unique Ids.
+        /// </summary>
+        /// <param name="context"></param>
+        /// <returns></returns>
+        public async Task TransformWeeklySchedulesAsync(WorkerContext context)
+        {
+            await ProcessGenericCollectionAsync<ScheduleRootDTO, GameDTO, long, Game>(
+                context,
+                endpoint: "schedule",
+                operationName: "TransformWeeklySchedule",
+                itemsSelector: root =>
+                    root.GameWeek?
+                        .SelectMany(week => week.Games ?? Enumerable.Empty<GameDTO>())
+                    ?? Enumerable.Empty<GameDTO>(),
+                keySelector: gameDto => gameDto.Id,
+                mapEntity: gameDto => new Game
+                {
+                    Id = (int)gameDto.Id
+                },
+                dbSet: _unitOfWork.Games);
+        }
+
+        /// <summary>
+        /// Transforms raw boxscore JSON payloads into structured PlayerGameStat and GoalieGameStat entities in the database, including granular goalie shots against context.
+        /// </summary>
+        /// <returns></returns>
+        public async Task TransformBoxscoresAsync(WorkerContext context)
+        {
+            HashSet<(int GameId, int PlayerId, int TeamId)> knownStats = await GetKnownKeysAsync<PlayerGameStat, (int GameId, int PlayerId, int TeamId)>(gs => ValueTuple.Create(gs.GameId, gs.PlayerId, gs.TeamId));
+            HashSet<(int GameId, int PlayerId, int TeamId)> knownGoalieStats = await GetKnownKeysAsync<GoalieGameStat, (int GameId, int PlayerId, int TeamId)>(gs => ValueTuple.Create(gs.GameId, gs.PlayerId, gs.TeamId));
+
+            await ProcessEndpointAsync<NhlBoxscoreRootDTO>(
+                context,
+                endpoint: "boxscore",
+                operationName: "TransformBoxscores",
+                processRootAsync: root =>
+                {
+                    if (!root.Id.HasValue) return Task.FromResult(false);
+
+                    int gameId = root.Id.Value;
+                    bool itemChanges = false;
+
+                    // Fetch or create Game record to hydrate game-level metadata
+                    var game = _unitOfWork.Games.FirstOrDefault(g => g.Id == gameId);
+                    if (game == null)
+                    {
+                        game = new Game { Id = gameId };
+                        _unitOfWork.Games.Add(game);
+                        itemChanges = true;
+                    }
+
+                    // Hydrate/Update Game metadata fields available from Boxscore DTO
+                    game.Season = root.Season ?? game.Season;
+                    game.GameType = root.GameType ?? game.GameType;
+                    game.LimitedScoring = root.LimitedScoring ?? game.LimitedScoring;
+                    game.GameDate = root.GameDate ?? game.GameDate;
+                    game.VenueDefault = root.Venue?.Default ?? game.VenueDefault;
+                    game.VenueLocation = root.VenueLocation?.Default ?? game.VenueLocation;
+                    game.StartTimeUTC = root.StartTimeUTC ?? game.StartTimeUTC;
+                    game.GameState = root.GameState ?? game.GameState;
+                    game.GameScheduleState = root.GameScheduleState ?? game.GameScheduleState;
+                    game.RegPeriods = root.RegPeriods ?? game.RegPeriods;
+                    game.AwayTeamId = root.AwayTeam?.Id ?? game.AwayTeamId;
+                    game.AwayScore = root.AwayTeam?.Score ?? game.AwayScore;
+                    game.AwaySog = root.AwayTeam?.Sog ?? game.AwaySog;
+                    game.HomeTeamId = root.HomeTeam?.Id ?? game.HomeTeamId;
+                    game.HomeScore = root.HomeTeam?.Score ?? game.HomeScore;
+                    game.HomeSog = root.HomeTeam?.Sog ?? game.HomeSog;
+
+                    // PeriodDescriptor mapping
+                    if (root.PeriodDescriptor != null)
+                    {
+                        game.PeriodNumber = root.PeriodDescriptor.Number ?? game.PeriodNumber;
+                        game.PeriodType = root.PeriodDescriptor.PeriodType ?? game.PeriodType;
+                        game.MaxRegulationPeriods = root.PeriodDescriptor.MaxRegulationPeriods ?? game.MaxRegulationPeriods;
+                        game.PeriodDescriptorOtPeriods = root.PeriodDescriptor.OtPeriods ?? game.PeriodDescriptorOtPeriods;
+                    }
+
+                    // Clock mapping
+                    if (root.Clock != null)
+                    {
+                        game.ClockTimeRemaining = root.Clock.TimeRemaining ?? game.ClockTimeRemaining;
+                        game.ClockSecondsRemaining = root.Clock.SecondsRemaining ?? game.ClockSecondsRemaining;
+                        game.ClockRunning = root.Clock.Running ?? game.ClockRunning;
+                        game.ClockInIntermission = root.Clock.InIntermission ?? game.ClockInIntermission;
+                    }
+
+                    // SpecialEvent mapping
+                    if (root.SpecialEvent != null)
+                    {
+                        game.SpecialEventParentId = root.SpecialEvent.ParentId ?? game.SpecialEventParentId;
+                        game.SpecialEventName = root.SpecialEvent.Name?.Default ?? game.SpecialEventName;
+                        game.SpecialEventLightLogoUrl = root.SpecialEvent.LightLogoUrl?.Default ?? game.SpecialEventLightLogoUrl;
+                    }
+
+                    // GameOutcome mapping
+                    if (root.GameOutcome != null)
+                    {
+                        game.LastPeriodType = root.GameOutcome.LastPeriodType ?? game.LastPeriodType;
+                        game.OtPeriods = root.GameOutcome.OtPeriods ?? game.OtPeriods;
+                        game.Tie = root.GameOutcome.Tie ?? game.Tie;
+                    }
+
+                    var statsContainer = root.PlayerByGameStats;
+                    if (statsContainer == null) return Task.FromResult(itemChanges);
+
+                    // Process both Away and Home teams explicitly typed to avoid compiler inference mismatches
+                    var teamsData = new[]
+                    {
+                    new { TeamId = statsContainer.AwayTeam?.Id ?? root.AwayTeam?.Id ?? 0, Forwards = statsContainer.AwayTeam?.Forwards, Defensemen = statsContainer.AwayTeam?.Defense, Goalies = statsContainer.AwayTeam?.Goalies },
+                    new { TeamId = statsContainer.HomeTeam?.Id ?? root.HomeTeam?.Id ?? 0, Forwards = statsContainer.HomeTeam?.Forwards, Defensemen = statsContainer.HomeTeam?.Defense, Goalies = statsContainer.HomeTeam?.Goalies }
+                    };
+
+                    foreach (var teamObj in teamsData)
+                    {
+                        if (teamObj.TeamId == 0) continue;
+                        int teamId = teamObj.TeamId;
+
+                        // 1. Process Forwards
+                        if (teamObj.Forwards != null)
+                        {
+                            foreach (var f in teamObj.Forwards)
+                            {
+                                if (!f.PlayerId.HasValue) continue;
+                                if (knownStats.Contains((gameId, f.PlayerId.Value, teamId))) continue;
+
+                                _unitOfWork.PlayerGameStats.Add(new PlayerGameStat
+                                {
+                                    GameId = gameId,
+                                    PlayerId = f.PlayerId.Value,
+                                    TeamId = teamId,
+                                    SweaterNumber = f.SweaterNumber ?? 0,
+                                    PlayerName = f.Name?.Default ?? string.Empty,
+                                    Position = f.Position ?? string.Empty,
+                                    Goals = f.Goals ?? 0,
+                                    Assists = f.Assists ?? 0,
+                                    Points = f.Points ?? 0,
+                                    PlusMinus = f.PlusMinus ?? 0,
+                                    Pim = f.Pim ?? 0,
+                                    Hits = f.Hits ?? 0,
+                                    PowerPlayGoals = f.PowerPlayGoals ?? 0,
+                                    Sog = f.Sog ?? 0,
+                                    FaceoffWinningPctg = f.FaceoffWinningPctg ?? 0f,
+                                    Toi = f.Toi ?? string.Empty,
+                                    BlockedShots = f.BlockedShots ?? 0,
+                                    Shifts = f.Shifts ?? 0,
+                                    Giveaways = f.Giveaways ?? 0,
+                                    Takeaways = f.Takeaways ?? 0
+                                });
+
+                                knownStats.Add((gameId, f.PlayerId.Value, teamId));
+                                itemChanges = true;
+                            }
+                        }
+
+                        // 2. Process Defensemen
+                        if (teamObj.Defensemen != null)
+                        {
+                            foreach (var d in teamObj.Defensemen)
+                            {
+                                if (!d.PlayerId.HasValue) continue;
+                                if (knownStats.Contains((gameId, d.PlayerId.Value, teamId))) continue;
+
+                                _unitOfWork.PlayerGameStats.Add(new PlayerGameStat
+                                {
+                                    GameId = gameId,
+                                    PlayerId = d.PlayerId.Value,
+                                    TeamId = teamId,
+                                    SweaterNumber = d.SweaterNumber ?? 0,
+                                    PlayerName = d.Name?.Default ?? string.Empty,
+                                    Position = d.Position ?? string.Empty,
+                                    Goals = d.Goals ?? 0,
+                                    Assists = d.Assists ?? 0,
+                                    Points = d.Points ?? 0,
+                                    PlusMinus = d.PlusMinus ?? 0,
+                                    Pim = d.Pim ?? 0,
+                                    Hits = d.Hits ?? 0,
+                                    PowerPlayGoals = d.PowerPlayGoals ?? 0,
+                                    Sog = d.Sog ?? 0,
+                                    FaceoffWinningPctg = d.FaceoffWinningPctg ?? 0f,
+                                    Toi = d.Toi ?? string.Empty,
+                                    BlockedShots = d.BlockedShots ?? 0,
+                                    Shifts = d.Shifts ?? 0,
+                                    Giveaways = d.Giveaways ?? 0,
+                                    Takeaways = d.Takeaways ?? 0
+                                });
+
+                                knownStats.Add((gameId, d.PlayerId.Value, teamId));
+                                itemChanges = true;
+                            }
+                        }
+
+                        // 3. Process Goalies
+                        if (teamObj.Goalies != null)
+                        {
+                            foreach (var g in teamObj.Goalies)
+                            {
+                                if (!g.PlayerId.HasValue) continue;
+                                if (knownGoalieStats.Contains((gameId, g.PlayerId.Value, teamId))) continue;
+
+                                _unitOfWork.GoalieGameStats.Add(new GoalieGameStat
+                                {
+                                    GameId = gameId,
+                                    PlayerId = g.PlayerId.Value,
+                                    TeamId = teamId,
+                                    SweaterNumber = g.SweaterNumber ?? 0,
+                                    PlayerName = g.Name?.Default ?? string.Empty,
+                                    Position = g.Position ?? string.Empty,
+                                    Toi = g.Toi ?? string.Empty,
+                                    Starter = g.Starter ?? false,
+                                    ShotsAgainst = g.ShotsAgainst ?? 0,
+                                    Saves = g.Saves ?? 0,
+                                    GoalsAgainst = g.GoalsAgainst ?? 0,
+                                    SavePctg = g.SavePctg ?? 0f,
+                                    Pim = g.Pim ?? 0,
+                                    Decision = g.Decision,
+                                    EvenStrengthShotsAgainst = g.EvenStrengthShotsAgainst ?? string.Empty,
+                                    PowerPlayShotsAgainst = g.PowerPlayShotsAgainst ?? string.Empty,
+                                    ShorthandedShotsAgainst = g.ShorthandedShotsAgainst ?? string.Empty,
+                                    SaveShotsAgainst = g.SaveShotsAgainst ?? string.Empty,
+                                    EvenStrengthGoalsAgainst = g.EvenStrengthGoalsAgainst ?? 0,
+                                    PowerPlayGoalsAgainst = g.PowerPlayGoalsAgainst ?? 0,
+                                    ShorthandedGoalsAgainst = g.ShorthandedGoalsAgainst ?? 0
+                                });
+
+                                knownGoalieStats.Add((gameId, g.PlayerId.Value, teamId));
+                                itemChanges = true;
+                            }
+                        }
+                    }
+
+                    return Task.FromResult(itemChanges);
+                });
+        }
+
+        /// <summary>
+        /// Transforms raw play-by-play JSON payloads into structured Game, SpecialEvent, and GamePlay entities in the database.
+        /// </summary>
+        /// <returns></returns>
+        public async Task TransformPlayByPlayAsync(WorkerContext context)
+        {
+            HashSet<int> validGameIds = await GetKnownKeysAsync<Game, int>(g => g.Id);
+            HashSet<(int GameId, int EventId)> knownPlays = await GetKnownKeysAsync<GamePlay, (int GameId, int EventId)>(gp => ValueTuple.Create(gp.GameId, gp.EventId));
+
+            await ProcessEndpointAsync<NhlPlayByPlayRootDTO>(
+                context,
+                endpoint: "play-by-play",
+                operationName: "TransformPlayByPlay",
+                processRootAsync: root =>
+                {
+                    if (!root.Id.HasValue) return Task.FromResult(false);
+
+                    int gameId = root.Id.Value;
+
+                    // Skip if parent game hasn't been seeded to prevent foreign key issues
+                    if (!validGameIds.Contains(gameId)) return Task.FromResult(false);
+
+                    bool itemChanges = false;
+
+                    // 1. Enrich PBP-specific Rule Flags on Base Game Entity
+                    var game = _unitOfWork.Games.FirstOrDefault(g => g.Id == gameId);
+                    if (game != null)
+                    {
+                        game.ShootoutInUse = root.ShootoutInUse ?? game.ShootoutInUse;
+                        game.OtInUse = root.OtInUse ?? game.OtInUse;
+                        
+                        if (root.PeriodDescriptor != null)
+                        {
+                            game.PeriodNumber = root.PeriodDescriptor.Number ?? game.PeriodNumber;
+                            game.PeriodType = root.PeriodDescriptor.PeriodType ?? game.PeriodType;
+                            game.MaxRegulationPeriods = root.PeriodDescriptor.MaxRegulationPeriods ?? game.MaxRegulationPeriods;
+                            game.PeriodDescriptorOtPeriods = root.PeriodDescriptor.OtPeriods ?? game.PeriodDescriptorOtPeriods;
+                        }
+                    }
+
+                    // 2. Map Granular Play-by-Play Events
+                    if (root.Plays != null)
+                    {
+                        foreach (var playDto in root.Plays)
+                        {
+                            if (!playDto.EventId.HasValue) continue;
+                            if (knownPlays.Contains((gameId, playDto.EventId.Value))) continue;
+
+                            var details = playDto.Details;
+                            var periodDesc = playDto.PeriodDescriptor;
+
+                            var playEntity = new GamePlay
+                            {
+                                GameId = gameId,
+                                EventId = playDto.EventId.Value,
+                                PeriodNumber = periodDesc?.Number ?? 0,
+                                PeriodType = periodDesc?.PeriodType ?? string.Empty,
+                                TimeInPeriod = playDto.TimeInPeriod ?? string.Empty,
+                                TimeRemaining = playDto.TimeRemaining ?? string.Empty,
+                                TypeCode = playDto.TypeCode ?? 0,
+                                TypeDescKey = playDto.TypeDescKey ?? string.Empty,
+                                SortOrder = playDto.SortOrder ?? 0,
+                                SituationCode = playDto.SituationCode ?? string.Empty,
+                                HomeTeamDefendingSide = playDto.HomeTeamDefendingSide,
+
+                                // Details: Ownership & Scoring Context
+                                EventOwnerTeamId = details?.EventOwnerTeamId,
+                                AwayScore = details?.AwayScore,
+                                HomeScore = details?.HomeScore,
+                                AwaySOG = details?.AwaySOG,
+                                HomeSOG = details?.HomeSOG,
+
+                                // Details: Shot & Goal Tracking
+                                ShotType = details?.ShotType,
+                                ShootingPlayerId = details?.ShootingPlayerId,
+                                ScoringPlayerId = details?.ScoringPlayerId,
+                                ScoringPlayerTotal = details?.ScoringPlayerTotal,
+                                Assist1PlayerId = details?.Assist1PlayerId,
+                                Assist1PlayerTotal = details?.Assist1PlayerTotal,
+                                Assist2PlayerId = details?.Assist2PlayerId,
+                                Assist2PlayerTotal = details?.Assist2PlayerTotal,
+                                Assist3PlayerId = details?.Assist3PlayerId,
+                                Assist3PlayerTotal = details?.Assist3PlayerTotal,
+                                GoalieInNetId = details?.GoalieInNetId,
+                                GoalInGame = details?.GoalInGame,
+
+                                // Details: Physical & Faceoff Events
+                                HittingPlayerId = details?.HittingPlayerId,
+                                HitteePlayerId = details?.HitteePlayerId,
+                                BlockingPlayerId = details?.BlockingPlayerId,
+                                WinningPlayerId = details?.WinningPlayerId,
+                                LosingPlayerId = details?.LosingPlayerId,
+
+                                // Details: Penalties
+                                CommittedByPlayerId = details?.CommittedByPlayerId,
+                                DrawnByPlayerId = details?.DrawnByPlayerId,
+                                ServedByPlayerId = details?.ServedByPlayerId,
+                                PenaltyDuration = details?.Duration,
+                                Reason = details?.Reason,
+                                SecondaryReason = details?.SecondaryReason,
+
+                                // Details: Spatial Coordinates
+                                XCoord = details?.XCoord,
+                                YCoord = details?.YCoord,
+                                ZoneCode = details?.ZoneCode,
+
+                                DetailsTypeCode = details?.TypeCode,
+                                DetailsDescKey = details?.DescKey,
+                                PlayerId = details?.PlayerId,
+                            };
+
+                            _unitOfWork.GamePlays.Add(playEntity);
+                            knownPlays.Add((gameId, playDto.EventId.Value));
+                            itemChanges = true;
+                        }
+                    }
+
+                    return Task.FromResult(itemChanges);
+                });
+        }
+
 
         #endregion
 
@@ -417,16 +780,23 @@ namespace NHLApp.Application.Services
         ////////////////////////////////////////     Level 1      ////////////////////////////////////////
         //////////////////////////////////////////////////////////////////////////////////////////////////
 
-
+        //------------------------------------------------------------------------------------------------------------------------
+        // Use directly only when a transformation requires custom per-item processing that does not fit the higher-level engines.
 
         /// <summary>
-        /// Level 1: Main batch execution engine handling transactional persistence and memory cleanup.
+        /// Level 1: Low-level batch engine responsible for executing transformations on individual items.
         /// </summary>
+        /// <typeparam name="T">The type of item being processed.</typeparam>
+        /// <param name="context">The worker context tracking processing state and transformation errors.</param>
+        /// <param name="items">The collection of items to process.</param>
+        /// <param name="operationName">The operation name used for logging.</param>
+        /// <param name="processItemAsync">The asynchronous transformation function executed for each item. Returns true when database changes were made.</param>
         /// <remarks>
-        /// <para><strong>Purpose:</strong> The foundational low-level engine. Use directly for complex per-record transformations that don't fit a standard collection pattern.</para>
-        /// <para><strong>Behavior:</strong> Iterates over items, executes the async handler, saves database changes incrementally, and clears the EF change tracker to prevent memory bloat.</para>
+        /// <para><strong>Purpose:</strong> Provides the foundation for all transformation workflows by centralizing item execution, persistence, error handling, and EF Core memory cleanup.</para>
+        /// <para><strong>When to use:</strong> Use directly only when a transformation requires custom per-item processing that does not fit the higher-level engines.</para>
+        /// <para><strong>Behavior:</strong> Executes each item handler individually, saves changes when required, logs transformation failures, and clears the EF Core change tracker after each item.</para>
         /// </remarks>
-        private async Task ProcessBatchAsync<T>(WorkerContext context, IEnumerable<T> items, string endpointName, Func<T, Task<bool>> processItemAsync)
+        private async Task ProcessBatchAsync<T>(WorkerContext context, IEnumerable<T> items, string operationName, Func<T, Task<bool>> processItemAsync)
         {
             foreach (var item in items)
             {
@@ -445,9 +815,9 @@ namespace NHLApp.Application.Services
                     context.TotalTransformErrors++;
                     _logger.LogErrorWithColor(
                         ex,
-                        "Failed to transform '{EndpointName}' payload. Total transform errors: {TotalErrors}",
+                        "Failed to transform '{operationName}' payload. Total transform errors: {TotalErrors}",
                         ConsoleColor.Red,
-                        endpointName,
+                        operationName,
                         context.TotalTransformErrors);
                 }
                 finally
@@ -463,15 +833,23 @@ namespace NHLApp.Application.Services
         ////////////////////////////////////////     Level 2     ////////////////////////////////////////
         /////////////////////////////////////////////////////////////////////////////////////////////////
 
-
+        //---------------------------------------------------------------------------------------------------------------
+        // Use when the transformation requires access to the complete JSON payload instead of individual extracted items:
 
         /// <summary>
-        /// Level 2: Intermediate engine for processing unique root payloads that contain nested items.
+        /// Level 2: Intermediate engine for processing raw API responses where the complete root DTO requires custom handling.
         /// </summary>
+        /// <typeparam name="TRoot">The root DTO type representing the deserialized JSON structure.</typeparam>
+        /// <param name="context">The worker context tracking processing state and transformation errors.</param>
+        /// <param name="endpoint">The raw API response endpoint to query.</param>
+        /// <param name="operationName">The operation name used for logging and tracking.</param>
+        /// <param name="processRootAsync">The asynchronous transformation function executed using the deserialized root DTO.</param>
         /// <remarks>
-        /// <para><strong>Purpose:</strong> Use when loading a staging endpoint whose root JSON requires global asynchronous processing per record.</para>
-        /// <para><strong>Behavior:</strong> Fetches raw records, handles root-level deserialization, and delegates item execution down to Motor 1.</para>
+        /// <para><strong>Purpose:</strong> Provides the common workflow for loading raw responses and deserializing root DTOs while allowing custom root-level transformation logic.</para>
+        /// <para><strong>When to use:</strong> Use when the transformation requires access to the complete JSON payload instead of individual extracted items.</para>
+        /// <para><strong>Behavior:</strong> Loads raw responses, deserializes each payload into the root DTO, and delegates processing to the provided handler.</para>
         /// </remarks>
+
         private async Task ProcessEndpointAsync<TRoot>(WorkerContext context, string endpoint, string operationName, Func<TRoot, Task<bool>> processRootAsync)
             where TRoot : class
         {
@@ -495,12 +873,24 @@ namespace NHLApp.Application.Services
             });
         }
 
+
+        //--------------------------------------------------------------------------------
+        // Use when each extracted item requires custom processing before being persisted:
+
         /// <summary>
-        /// Level 2: Intermediate engine to iterate through and process a collection of child items extracted from a root payload.
+        /// Level 2: Intermediate engine for processing collections of child items extracted from root DTOs.
         /// </summary>
+        /// <typeparam name="TRoot">The root DTO type representing the deserialized JSON structure.</typeparam>
+        /// <typeparam name="TItem">The individual item type extracted from the root DTO.</typeparam>
+        /// <param name="context">The worker context tracking processing state and transformation errors.</param>
+        /// <param name="endpoint">The raw API response endpoint to query.</param>
+        /// <param name="operationName">The operation name used for logging and tracking.</param>
+        /// <param name="itemsSelector">Function that extracts the item collection from the root DTO.</param>
+        /// <param name="processItemAsync">The asynchronous transformation function executed for each extracted item.</param>
         /// <remarks>
-        /// <para><strong>Purpose:</strong> Use when each raw response contains an array or list of items that need to be iterated over (e.g., teams or roster items).</para>
-        /// <para><strong>Behavior:</strong> Deserializes the root entity, extracts the inner collection via the provided selector, and evaluates the processing logic on each item.</para>
+        /// <para><strong>Purpose:</strong> Provides a reusable workflow for processing JSON payloads containing collections of child items requiring custom transformation logic.</para>
+        /// <para><strong>When to use:</strong> Use when each extracted item requires custom processing before being persisted.</para>
+        /// <para><strong>Behavior:</strong> Deserializes root DTOs, extracts items using the selector, processes each item, and delegates persistence handling to the batch engine.</para>
         /// </remarks>
         private async Task ProcessEndpointCollectionAsync<TRoot, TItem>(WorkerContext context, string endpoint, string operationName, Func<TRoot, IEnumerable<TItem>> itemsSelector, Func<TItem, Task<bool>> processItemAsync)
             where TRoot : class
@@ -545,13 +935,27 @@ namespace NHLApp.Application.Services
         /////////////////////////////////////////////////////////////////////////////////////////////////
 
 
+        //----------------------------------------------------------------------------------------------------------
+        // Use when extracted items can be mapped directly into entities without additional custom processing logic:
 
         /// <summary>
-        /// Level 3: High-level turn-key engine to automatically transform and insert standardized entities with primary key duplicate checking.
+        /// Level 3: High-level generic engine for transforming API collections into EF Core entities.
         /// </summary>
+        /// <typeparam name="TRoot">The root DTO type representing the JSON response structure.</typeparam>
+        /// <typeparam name="TItem">The individual item DTO type extracted from the root DTO.</typeparam>
+        /// <typeparam name="TKey">The key type used for duplicate detection (int, long, Guid, etc.).</typeparam>
+        /// <typeparam name="TEntity">The EF Core entity type being inserted.</typeparam>
+        /// <param name="context">The worker context tracking processing state and transformation errors.</param>
+        /// <param name="endpoint">The raw API response endpoint to query.</param>
+        /// <param name="operationName">The operation name used for logging and tracking.</param>
+        /// <param name="itemsSelector">Function that extracts the item collection from the root DTO.</param>
+        /// <param name="keySelector">Function that extracts the unique key from an item DTO.</param>
+        /// <param name="mapEntity">Function that converts an item DTO into an EF Core entity.</param>
+        /// <param name="dbSet">The EF Core DbSet where new entities are added.</param>
         /// <remarks>
-        /// <para><strong>Purpose:</strong> The default choice for 90% of simple entities that extract items from JSON and map directly into a table.</para>
-        /// <para><strong>Behavior:</strong> Automatically caches existing database keys to prevent primary key collisions, extracts items, maps them to the target entity, and stages them for insertion.</para>
+        /// <para><strong>Purpose:</strong> Provides a reusable DTO-to-entity transformation pipeline for standard API collection imports.</para>
+        /// <para><strong>When to use:</strong> Use when extracted items can be mapped directly into entities without additional custom processing logic.</para>
+        /// <para><strong>Behavior:</strong> Loads existing keys, skips duplicates, maps DTOs into entities, stages new entities for insertion, and delegates persistence handling to the batch engine.</para>
         /// </remarks>
         private async Task ProcessGenericCollectionAsync<TRoot, TItem, TKey, TEntity>(WorkerContext context, string endpoint, string operationName, Func<TRoot, IEnumerable<TItem>> itemsSelector, Func<TItem, TKey> keySelector, Func<TItem, TEntity> mapEntity, DbSet<TEntity> dbSet)
             where TRoot : class

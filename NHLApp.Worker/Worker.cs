@@ -29,13 +29,13 @@ namespace NHLApp.Worker
             // Log the start of the worker and record the start time
             _logger.LogInformationWithColor("Worker NHLApp démarré", ConsoleColor.Green);
             context.StartedAt = DateTime.Now;
-            
 
-            
+
+
             ////////////////////////////////////////////////////
             // Import data from the NHL API into the database //
             ////////////////////////////////////////////////////
-            
+
             await importService.ImportSeasonsAsync(context);
             _logger.LogInformationWithColor("Import des saisons terminé", ConsoleColor.Green);
 
@@ -51,12 +51,19 @@ namespace NHLApp.Worker
             await importService.ImportPlayerLandingsAsync(context);
             _logger.LogInformationWithColor("Import des player landings terminé", ConsoleColor.Green);
 
+            await importService.ImportWeeklySchedulesAsync(context);
+            _logger.LogInformationWithColor("Import des cédules hebdomadaires terminé", ConsoleColor.Green);
 
-                        
+            await importService.ImportBoxScoresAsync(context);
+            _logger.LogInformationWithColor("Import des box scores terminé", ConsoleColor.Green);
+
+            await importService.ImportPlayByPlayAsync(context);
+            _logger.LogInformationWithColor("Import des play-by-play terminé", ConsoleColor.Green);
+
             //////////////////////////////////////////////////////////////////
             // Transform data from the database into the application models //
             //////////////////////////////////////////////////////////////////
-            
+
             await transformService.TransformSeasonsAsync(context);
             _logger.LogInformationWithColor("Transformation des saisons terminée", ConsoleColor.Green);
 
@@ -70,8 +77,16 @@ namespace NHLApp.Worker
             _logger.LogInformationWithColor("Transformation des rosters terminée", ConsoleColor.Green);
 
             await transformService.TransformPlayerLandingsAsync(context);
-            _logger.LogInformationWithColor("Transformation des player landings terminé", ConsoleColor.Green);
+            _logger.LogInformationWithColor("Transformation des player landings terminée", ConsoleColor.Green);
 
+            await transformService.TransformWeeklySchedulesAsync(context);
+            _logger.LogInformationWithColor("Transformation cédules hebdomadaires en GameIds terminée", ConsoleColor.Green);
+
+            await transformService.TransformBoxscoresAsync(context);
+            _logger.LogInformationWithColor("Transformation des box scores terminée", ConsoleColor.Green);
+
+            await transformService.TransformPlayByPlayAsync(context);
+            _logger.LogInformationWithColor("Transformation des play-by-play terminée", ConsoleColor.Green);
 
 
             // Log the end of the worker and record the end time
