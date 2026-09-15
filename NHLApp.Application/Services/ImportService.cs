@@ -108,14 +108,9 @@ namespace NHLApp.Application.Services
                 return;
             }
 
-            // Check if the roster-seasons data has been imported for all teams
-            var allRosterSeasonsExist = _unitOfWork.RawApiResponses.Any(r => r.Endpoint == "roster-seasons");
-            if (!allRosterSeasonsExist)
-            {
-                context.TotalImportErrors++;
-                _logger.LogErrorWithColor("Cannot process rosters because roster-seasons data has not been imported yet.", ConsoleColor.Red, context.TotalImportErrors);
-                return;
-            }
+            var allRosterSeasons = _unitOfWork.RawApiResponses
+                .Where(r => r.Endpoint == "roster-seasons")
+                .ToDictionary(r => r.EntityId, r => r.ResponseJson);
 
             // For each team, retrieve the roster seasons and then import the roster for each season
             foreach (var triCode in triCodes)
@@ -274,9 +269,7 @@ namespace NHLApp.Application.Services
             try
             {
                 var json = await fetchApiAsync();
-                string? metadata = metadataSelector?.Invoke(json);
-
-                await _unitOfWork.SaveOrUpdateRawResponseAsync(endpoint, key, json, metadata);
+                await _unitOfWork.SaveOrUpdateRawResponseAsync(endpoint, key, json);
 
                 context.TotalApiCalls++;
                 _logger.LogInformationWithColor("TOTAL API CALLS SINCE APP STARTED: {TotalApiCalls}", ConsoleColor.Magenta, context.TotalApiCalls);
@@ -327,7 +320,7 @@ namespace NHLApp.Application.Services
                     var json = await fetchApiAsync(item);
                     string? metadata = metadataSelector?.Invoke(json);
 
-                    await _unitOfWork.SaveOrUpdateRawResponseAsync(endpoint, key, json, metadata);
+                    await _unitOfWork.SaveOrUpdateRawResponseAsync(endpoint, key, json);
 
                     await Task.Delay(ApiThrottlingDelay);
 
@@ -387,7 +380,8 @@ namespace NHLApp.Application.Services
         /// <returns></returns>
         private string? ExtractTricodeMetadata(string json)
         {
-            if (json.TryDeserializeSafe<NhlTeamRootDTO>(out var teamRoot, out _) && teamRoot?.Data != null)
+            var teamRaw = _unitOfWork.RawApiResponses.FirstOrDefault(r => r.Endpoint == "team");
+            if (teamRaw == null || string.IsNullOrWhiteSpace(teamRaw.ResponseJson))
             {
                 var triCodes = teamRoot.Data
                     .Where(t => t.TriCode != "TBD" && t.TriCode != "NHL")
@@ -468,10 +462,9 @@ namespace NHLApp.Application.Services
         /// </summary>
         private List<int> GetAllSeasonIdsFromMetadata()
         {
-            var seasonIds = new List<int>();
-
-            var records = _unitOfWork.RawApiResponses
-                .Where(r => r.Endpoint == "roster-seasons" && !string.IsNullOrWhiteSpace(r.Metadata))
+            var rosterJsons = _unitOfWork.RawApiResponses
+                .Where(r => r.Endpoint == "roster")
+                .Select(r => r.ResponseJson)
                 .ToList();
 
             foreach (var record in records)
