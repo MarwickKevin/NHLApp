@@ -21,6 +21,10 @@ namespace NHLApp.Domain.Interfaces
         DbSet<DraftDetail> DraftDetail { get; }
         DbSet<PlayerAwards> PlayerAwards { get; }
         DbSet<SeasonTotal> SeasonTotals { get; }
+        DbSet<Game> Games { get; }
+        DbSet<GamePlay> GamePlays { get; }
+        DbSet<GoalieGameStat> GoalieGameStats { get; }
+        DbSet<PlayerGameStat> PlayerGameStats { get; }
 
         ChangeTracker ChangeTracker { get; }
 
@@ -30,6 +34,6 @@ namespace NHLApp.Domain.Interfaces
 
         Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 
-        Task SaveOrUpdateRawResponseAsync(string endpoint, string entityId, string json);
+        Task SaveOrUpdateRawResponseAsync(string endpoint, string entityId, string json, string? metadata = null);
     }
 }

@@ -32,6 +32,10 @@ namespace NHLApp.Infrastructure.Data
         public DbSet<DraftDetail> DraftDetail => _context.DraftDetail;
         public DbSet<PlayerAwards> PlayerAwards => _context.PlayerAwards;
         public DbSet<SeasonTotal> SeasonTotals => _context.SeasonTotals;
+        public DbSet<Game> Games => _context.Games; 
+        public DbSet<GamePlay> GamePlays => _context.GamePlays;
+        public DbSet<PlayerGameStat> PlayerGameStats => _context.PlayerGameStats;
+        public DbSet<GoalieGameStat> GoalieGameStats => _context.GoalieGameStats;
 
         public ChangeTracker ChangeTracker => _context.ChangeTracker;
 
@@ -46,17 +50,18 @@ namespace NHLApp.Infrastructure.Data
         public async Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
             => await _context.SaveChangesAsync(cancellationToken);
 
-        public async Task SaveOrUpdateRawResponseAsync(string endpoint, string entityId, string json)
+        public async Task SaveOrUpdateRawResponseAsync(string endpoint, string entityId, string json, string? metadata = null)
         {
             try
             {
-                var dbRecord = await _context.RawApiResponses.FirstOrDefaultAsync(r => r.EntityId == entityId);
+                var existing = await _context.RawApiResponses
+                    .FirstOrDefaultAsync(r => r.Endpoint == endpoint && r.EntityId == entityId);
 
-                if (dbRecord != null)
+                if (existing != null)
                 {
-                    dbRecord.ResponseJson = json;
-                    dbRecord.FetchedAt = DateTime.UtcNow;
-                    await _context.SaveChangesAsync();
+                    existing.ResponseJson = json;
+                    existing.Metadata = metadata; // Mise à jour
+                    existing.FetchedAt = DateTime.UtcNow;
                 }
                 else
                 {
@@ -65,16 +70,16 @@ namespace NHLApp.Infrastructure.Data
                         Endpoint = endpoint,
                         EntityId = entityId,
                         ResponseJson = json,
+                        Metadata = metadata,
                         FetchedAt = DateTime.UtcNow
                     });
-                    await _context.SaveChangesAsync();
                 }
+                await _context.SaveChangesAsync();
             }
             catch (Exception ex)
             {
-                // Si tu veux logger, tu peux injecter un ILogger<UnitOfWork> dans le constructeur du UoW
+
                 _logger.LogError(ex, "Failed to save endpoint {Endpoint} for entity {EntityId}.", endpoint, entityId);
-                throw; // Ou gérer l'erreur selon tes préférences
             }
         }
     }
