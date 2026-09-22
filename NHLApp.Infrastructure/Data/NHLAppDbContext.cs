@@ -33,88 +33,97 @@ namespace NHLApp.Infrastructure.Data
         {
             base.OnModelCreating(modelBuilder);
 
+            // Raw API Responses
             modelBuilder.Entity<RawApiResponse>()
                 .Property(r => r.ResponseJson)
                 .HasColumnType("nvarchar(max)");
 
-            modelBuilder.Entity<Franchise>()
-                .HasKey(f => f.FranchiseId);
+            // Franchises
+            modelBuilder.Entity<Franchise>(entity =>
+            {
+                entity.HasKey(f => f.FranchiseId);
+                entity.Property(f => f.FranchiseId).ValueGeneratedNever();
+            });
 
-            modelBuilder.Entity<Franchise>()
-                .Property(f => f.FranchiseId)
-                .ValueGeneratedNever();
+            // Players
+            modelBuilder.Entity<Player>(entity =>
+            {
+                entity.HasKey(p => p.PlayerId);
+                entity.Property(p => p.PlayerId).ValueGeneratedNever();
+            });
 
-            modelBuilder.Entity<Player>()
-                .HasKey(p => p.PlayerId);
 
-            modelBuilder.Entity<Player>()
-                .Property(p => p.PlayerId)
-                .ValueGeneratedNever();
+            // Seasons
+            modelBuilder.Entity<Season>(entity =>
+            {
+                entity.HasKey(s => s.SeasonId);
+                entity.Property(s => s.SeasonId).ValueGeneratedNever();
+            });
 
-            modelBuilder.Entity<Season>()
-                .HasKey(s => s.SeasonId);
+            // Trophies
+            modelBuilder.Entity<Trophy>(entity =>
+            {
+                entity.HasKey(t => t.Id);
+            });
 
-            modelBuilder.Entity<Season>()
-                .Property(s => s.SeasonId)
-                .ValueGeneratedNever();
+            // Teams
+            modelBuilder.Entity<Team>(entity =>
+            {
+                entity.HasKey(t => new { t.TeamId, t.SeasonId });
+                entity.Property(t => t.TeamId).ValueGeneratedNever();
 
-            modelBuilder.Entity<Team>()
-                .HasKey(t => new { t.TeamId, t.SeasonId });
+                entity.HasOne(t => t.Franchise)
+                      .WithMany(f => f.Teams)
+                      .HasForeignKey(t => t.FranchiseId);
 
-            modelBuilder.Entity<Team>()
-                .Property(t => t.TeamId)
-                .ValueGeneratedNever();
+                entity.HasOne(t => t.Season)
+                      .WithMany()
+                      .HasForeignKey(t => t.SeasonId);
+            });
 
-            modelBuilder.Entity<Team>()
-                .HasOne(t => t.Franchise)
-                .WithMany(f => f.Teams)
-                .HasForeignKey(t => t.FranchiseId);
+            // TeamRosters
+            modelBuilder.Entity<TeamRosters>(entity =>
+            {
+                entity.HasKey(tr => new { tr.TeamId, tr.PlayerId, tr.SeasonId });
 
-            modelBuilder.Entity<Team>()
-                .HasOne(t => t.Season)
-                .WithMany()
-                .HasForeignKey(t => t.SeasonId);
+                entity.HasOne(tr => tr.Team)
+                      .WithMany()
+                      .HasForeignKey(tr => new { tr.TeamId, tr.SeasonId });
 
-            modelBuilder.Entity<TeamRosters>()
-                .HasKey(tr => new { tr.TeamId, tr.PlayerId, tr.SeasonId });
+                entity.HasOne(tr => tr.Player)
+                      .WithMany()
+                      .HasForeignKey(tr => tr.PlayerId);
+            });
 
-            modelBuilder.Entity<TeamRosters>()
-                .HasOne(tr => tr.Team)
-                .WithMany()
-                .HasForeignKey(tr => new { tr.TeamId, tr.SeasonId });
+            // DraftDetail
+            modelBuilder.Entity<DraftDetail>(entity =>
+            {
+                entity.HasKey(d => d.PlayerId);
+            });
 
-            modelBuilder.Entity<TeamRosters>()
-                .HasOne(tr => tr.Player)
-                .WithMany()
-                .HasForeignKey(tr => tr.PlayerId);
+            // PlayerAwards
+            modelBuilder.Entity<PlayerAwards>(entity =>
+            {
+                entity.HasKey(pa => new { pa.PlayerId, pa.TrophyId, pa.SeasonId });
 
-            modelBuilder.Entity<DraftDetail>()
-                .HasKey(d => d.PlayerId);
-            
-            modelBuilder.Entity<PlayerAwards>()
-                .HasKey(pa => new { pa.PlayerId, pa.TrophyId, pa.SeasonId });
-            
-            modelBuilder.Entity<PlayerAwards>()
-                .HasOne(pa => pa.Player)
-                .WithMany(p => p.PlayerAwards)
-                .HasForeignKey(pa => pa.PlayerId);
+                entity.HasOne(pa => pa.Player)
+                      .WithMany(p => p.PlayerAwards)
+                      .HasForeignKey(pa => pa.PlayerId);
 
-            modelBuilder.Entity<PlayerAwards>()
-                .HasOne(pa => pa.Trophy)
-                .WithMany(t => t.Awards)
-                .HasForeignKey(pa => pa.TrophyId);
+                entity.HasOne(pa => pa.Trophy)
+                      .WithMany(t => t.Awards)
+                      .HasForeignKey(pa => pa.TrophyId);
 
-            modelBuilder.Entity<PlayerAwards>()
-                .HasOne(pa => pa.Season)
-                .WithMany(s => s.Awards)
-                .HasForeignKey(pa => pa.SeasonId);
+                entity.HasOne(pa => pa.Season)
+                      .WithMany(s => s.Awards)
+                      .HasForeignKey(pa => pa.SeasonId);
+            });
 
-            modelBuilder.Entity<Game>()
-                .Property(g => g.Id)
-                .ValueGeneratedNever();
-
+            // Games
             modelBuilder.Entity<Game>(entity =>
             {
+                entity.HasKey(g => g.Id);
+                entity.Property(g => g.Id).ValueGeneratedNever();
                 entity.Property(g => g.GameDate).HasMaxLength(20);
                 entity.Property(g => g.VenueDefault).HasMaxLength(150);
                 entity.Property(g => g.VenueLocation).HasMaxLength(100);
@@ -123,8 +132,14 @@ namespace NHLApp.Infrastructure.Data
                 entity.Property(g => g.GameScheduleState).HasMaxLength(10);
                 entity.Property(g => g.LastPeriodType).HasMaxLength(20);
                 entity.Property(g => g.SpecialEventName).HasMaxLength(150);
+
+                entity.HasOne<Season>()
+                      .WithMany()
+                      .HasForeignKey(g => g.SeasonId)
+                      .OnDelete(DeleteBehavior.Restrict);
             });
 
+            // GamePlays
             modelBuilder.Entity<GamePlay>(entity =>
             {
                 entity.HasKey(gp => gp.Id);
@@ -148,7 +163,7 @@ namespace NHLApp.Infrastructure.Data
                 entity.HasIndex(gp => new { gp.GameId, gp.EventId }).IsUnique();
             });
 
-            // PlayerGameStat Configuration
+            // PlayerGameStats
             modelBuilder.Entity<PlayerGameStat>(entity =>
             {
                 entity.HasKey(pgs => pgs.Id);
@@ -160,10 +175,15 @@ namespace NHLApp.Infrastructure.Data
                       .HasForeignKey(pgs => pgs.GameId)
                       .OnDelete(DeleteBehavior.Cascade);
 
+                entity.HasOne<Player>()
+                      .WithMany()
+                      .HasForeignKey(pgs => pgs.PlayerId)
+                      .OnDelete(DeleteBehavior.Restrict);
+
                 entity.HasIndex(pgs => new { pgs.GameId, pgs.PlayerId, pgs.TeamId }).IsUnique();
             });
 
-            // GoalieGameStat Configuration
+            // GoalieGameStats
             modelBuilder.Entity<GoalieGameStat>(entity =>
             {
                 entity.HasKey(ggs => ggs.Id);
@@ -179,10 +199,13 @@ namespace NHLApp.Infrastructure.Data
                       .HasForeignKey(ggs => ggs.GameId)
                       .OnDelete(DeleteBehavior.Cascade);
 
+                entity.HasOne<Player>()
+                      .WithMany()
+                      .HasForeignKey(ggs => ggs.PlayerId)
+                      .OnDelete(DeleteBehavior.Restrict);
+
                 entity.HasIndex(ggs => new { ggs.GameId, ggs.PlayerId, ggs.TeamId }).IsUnique();
             });
-
-
         }
     }
 }

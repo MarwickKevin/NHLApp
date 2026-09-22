@@ -9,7 +9,7 @@ namespace NHLApp.Domain.Entities
     public class Game
     {
         public int Id { get; set; }
-        public int? Season { get; set; }
+        public int? SeasonId { get; set; }
         public int? GameType { get; set; }
         public bool? LimitedScoring { get; set; }
         public string? GameDate { get; set; } 
