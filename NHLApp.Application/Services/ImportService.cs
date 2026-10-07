@@ -12,8 +12,9 @@ using System.Text;
 
 namespace NHLApp.Application.Services
 {
-    // TODO: Use hash comparison for JSON content to determine if an update is necessary, instead of relying solely on timestamps
-    // TODO: Add retry logic for API calls to handle transient failures and improve reliability
+    
+    // TODO: Adapt each import method to properly update only data that can change (historical or fixed data will never change)
+    // TODO: Add retry logic and rate limiter for API calls to handle transient failures and improve reliability (Polly library) 
 
     // TODO: Add counters of success (x/y) and show in console
     // TODO: Make error handling consistent across all methods, including logging and exception throwing. (centralize error handling)
@@ -27,7 +28,7 @@ namespace NHLApp.Application.Services
         private readonly ILogger<ImportService> _logger;
 
         // Constants for API throttling to avoid hitting the NHL API too quickly
-        private const int ApiThrottlingDelay = 100;
+        private const int ApiThrottlingDelay = 200;
 
         public ImportService(INHLApiClient nhlClient, IUnitOfWork unitOfWork, ILogger<ImportService> logger)
         {
@@ -44,7 +45,6 @@ namespace NHLApp.Application.Services
         /// <returns></returns>
         public async Task ImportSeasonsAsync(WorkerContext context)
         {
-            // Check if the seasons have already been imported within the last 24 hours
             await ProcessImportAsync(
                 context,
                 endpoint: "season",
@@ -63,7 +63,6 @@ namespace NHLApp.Application.Services
                 endpoint: "team",
                 entityId: "all",
                 fetchApiAsync: () => _nhlClient.GetTeamsAsync(),
-                // Extract team tricodes from the JSON response for metadata storage
                 metadataSelector: json => ExtractTricodeMetadata(json));
 
         }
@@ -91,7 +90,6 @@ namespace NHLApp.Application.Services
                 endpoint: "roster-seasons",
                 entityIdSelector: triCode => triCode,
                 fetchApiAsync: triCode => _nhlClient.GetTeamRosterSeasonsAsync(triCode),
-                // Extract season IDs from the roster seasons JSON response for metadata storage
                 metadataSelector: json => ExtractSeasonIdsMetadata(json));
         }
 
@@ -141,7 +139,6 @@ namespace NHLApp.Application.Services
                     endpoint: "roster",
                     entityIdSelector: seasonId => $"{triCode}-{seasonId}",
                     fetchApiAsync: seasonId => _nhlClient.GetTeamRosterAsync(triCode, seasonId),
-                    // Extract player IDs from the roster JSON response for metadata storage
                     metadataSelector: json => ExtractRosterPlayerIdsMetadata(json));
 
             }
@@ -281,6 +278,10 @@ namespace NHLApp.Application.Services
             try
             {
                 var json = await fetchApiAsync();
+                context.TotalApiCalls++;
+                _logger.LogInformationWithColor("TOTAL API CALLS SINCE APP STARTED: {TotalApiCalls}", ConsoleColor.Magenta, context.TotalApiCalls);
+                await Task.Delay(ApiThrottlingDelay);
+
                 string? metadata = metadataSelector?.Invoke(json);
 
                 var newHash = ComputeJsonHash(json);
@@ -290,11 +291,7 @@ namespace NHLApp.Application.Services
                     return;
                 }
 
-                await _unitOfWork.SaveOrUpdateRawResponseAsync(endpoint, key, json, metadata);
-
-                context.TotalApiCalls++;
-                _logger.LogInformationWithColor("TOTAL API CALLS SINCE APP STARTED: {TotalApiCalls}", ConsoleColor.Magenta, context.TotalApiCalls);
-
+                await _unitOfWork.SaveOrUpdateRawResponseAsync(endpoint, key, json, metadata, newHash);
             }
             catch (Exception ex)
             {
@@ -342,6 +339,10 @@ namespace NHLApp.Application.Services
                 try
                 {
                     var json = await fetchApiAsync(item);
+                    await Task.Delay(ApiThrottlingDelay);
+                    context.TotalApiCalls++;
+                    _logger.LogInformationWithColor("TOTAL API CALLS SINCE APP STARTED: {TotalApiCalls}", ConsoleColor.Magenta, context.TotalApiCalls);
+
                     var newHash = ComputeJsonHash(json);
 
                     if (existingHash != null && existingHash == newHash)
@@ -351,12 +352,8 @@ namespace NHLApp.Application.Services
                     }
 
                     string? metadata = metadataSelector?.Invoke(json);
-                    await _unitOfWork.SaveOrUpdateRawResponseAsync(endpoint, key, json, metadata, newHash);
-
-                    await Task.Delay(ApiThrottlingDelay);
-
-                    context.TotalApiCalls++;
-                    _logger.LogInformationWithColor("TOTAL API CALLS SINCE APP STARTED: {TotalApiCalls}", ConsoleColor.Magenta, context.TotalApiCalls);
+                    await _unitOfWork.SaveOrUpdateRawResponseAsync(endpoint, key, json, metadata, newHash);                   
+                    
                 }
                 catch (Exception ex)
                 {
@@ -379,7 +376,7 @@ namespace NHLApp.Application.Services
         /// </summary>
         private bool IsFresh(DateTime? fetchedAt)
         {
-            return fetchedAt.HasValue && fetchedAt.Value > DateTime.UtcNow.AddDays(-100);
+            return fetchedAt.HasValue && fetchedAt.Value > DateTime.UtcNow.AddDays(1);
         }
 
         /// <summary>
@@ -399,6 +396,9 @@ namespace NHLApp.Application.Services
             return dates;
         }
 
+        /// <summary>
+        /// Computes a SHA256 hash of the given JSON string and returns it as a hexadecimal string.
+        /// </summary>
         private string ComputeJsonHash(string jsonInput)
         {
             byte[] bytes = Encoding.UTF8.GetBytes(jsonInput);
