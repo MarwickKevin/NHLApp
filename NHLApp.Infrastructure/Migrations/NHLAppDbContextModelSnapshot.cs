@@ -44,7 +44,7 @@ namespace NHLApp.Infrastructure.Migrations
 
                     b.HasKey("PlayerId");
 
-                    b.ToTable("DraftDetail");
+                    b.ToTable("DraftDetail", (string)null);
                 });
 
             modelBuilder.Entity("NHLApp.Domain.Entities.Franchise", b =>
@@ -57,7 +57,7 @@ namespace NHLApp.Infrastructure.Migrations
 
                     b.HasKey("FranchiseId");
 
-                    b.ToTable("Franchises");
+                    b.ToTable("Franchises", (string)null);
                 });
 
             modelBuilder.Entity("NHLApp.Domain.Entities.Game", b =>
@@ -173,7 +173,7 @@ namespace NHLApp.Infrastructure.Migrations
 
                     b.HasIndex("SeasonId");
 
-                    b.ToTable("Games");
+                    b.ToTable("Games", (string)null);
                 });
 
             modelBuilder.Entity("NHLApp.Domain.Entities.GamePlay", b =>
@@ -334,7 +334,7 @@ namespace NHLApp.Infrastructure.Migrations
                     b.HasIndex("GameId", "EventId")
                         .IsUnique();
 
-                    b.ToTable("GamePlays");
+                    b.ToTable("GamePlays", (string)null);
                 });
 
             modelBuilder.Entity("NHLApp.Domain.Entities.GoalieGameStat", b =>
@@ -421,7 +421,7 @@ namespace NHLApp.Infrastructure.Migrations
                     b.HasIndex("GameId", "PlayerId", "TeamId")
                         .IsUnique();
 
-                    b.ToTable("GoalieGameStats");
+                    b.ToTable("GoalieGameStats", (string)null);
                 });
 
             modelBuilder.Entity("NHLApp.Domain.Entities.Player", b =>
@@ -500,7 +500,7 @@ namespace NHLApp.Infrastructure.Migrations
 
                     b.HasKey("PlayerId");
 
-                    b.ToTable("Players");
+                    b.ToTable("Players", (string)null);
                 });
 
             modelBuilder.Entity("NHLApp.Domain.Entities.PlayerAwards", b =>
@@ -520,7 +520,7 @@ namespace NHLApp.Infrastructure.Migrations
 
                     b.HasIndex("TrophyId");
 
-                    b.ToTable("PlayerAwards");
+                    b.ToTable("PlayerAwards", (string)null);
                 });
 
             modelBuilder.Entity("NHLApp.Domain.Entities.PlayerGameStat", b =>
@@ -600,7 +600,7 @@ namespace NHLApp.Infrastructure.Migrations
                     b.HasIndex("GameId", "PlayerId", "TeamId")
                         .IsUnique();
 
-                    b.ToTable("PlayerGameStats");
+                    b.ToTable("PlayerGameStats", (string)null);
                 });
 
             modelBuilder.Entity("NHLApp.Domain.Entities.RawApiResponse", b =>
@@ -631,7 +631,7 @@ namespace NHLApp.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("RawApiResponses");
+                    b.ToTable("RawApiResponses", (string)null);
                 });
 
             modelBuilder.Entity("NHLApp.Domain.Entities.Season", b =>
@@ -647,7 +647,7 @@ namespace NHLApp.Infrastructure.Migrations
 
                     b.HasKey("SeasonId");
 
-                    b.ToTable("Seasons");
+                    b.ToTable("Seasons", (string)null);
                 });
 
             modelBuilder.Entity("NHLApp.Domain.Entities.SeasonTotal", b =>
@@ -734,7 +734,7 @@ namespace NHLApp.Infrastructure.Migrations
 
                     b.HasIndex("PlayerId");
 
-                    b.ToTable("SeasonTotals");
+                    b.ToTable("SeasonTotals", (string)null);
                 });
 
             modelBuilder.Entity("NHLApp.Domain.Entities.Team", b =>
@@ -767,7 +767,7 @@ namespace NHLApp.Infrastructure.Migrations
 
                     b.HasIndex("SeasonId");
 
-                    b.ToTable("Teams");
+                    b.ToTable("Teams", (string)null);
                 });
 
             modelBuilder.Entity("NHLApp.Domain.Entities.TeamRosters", b =>
@@ -787,7 +787,7 @@ namespace NHLApp.Infrastructure.Migrations
 
                     b.HasIndex("TeamId", "SeasonId");
 
-                    b.ToTable("TeamRosters");
+                    b.ToTable("TeamRosters", (string)null);
                 });
 
             modelBuilder.Entity("NHLApp.Domain.Entities.Trophy", b =>
@@ -804,7 +804,7 @@ namespace NHLApp.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("Trophies");
+                    b.ToTable("Trophies", (string)null);
                 });
 
             modelBuilder.Entity("NHLApp.Domain.Entities.DraftDetail", b =>
