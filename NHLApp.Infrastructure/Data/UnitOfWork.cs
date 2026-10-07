@@ -50,7 +50,7 @@ namespace NHLApp.Infrastructure.Data
         public async Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
             => await _context.SaveChangesAsync(cancellationToken);
 
-        public async Task SaveOrUpdateRawResponseAsync(string endpoint, string entityId, string json, string? metadata = null)
+        public async Task SaveOrUpdateRawResponseAsync(string endpoint, string entityId, string json, string? metadata = null, string? contentHash = null)
         {
             try
             {
@@ -60,8 +60,9 @@ namespace NHLApp.Infrastructure.Data
                 if (existing != null)
                 {
                     existing.ResponseJson = json;
-                    existing.Metadata = metadata; // Mise à jour
+                    existing.Metadata = metadata;
                     existing.FetchedAt = DateTime.UtcNow;
+                    existing.ContentHash = contentHash;
                 }
                 else
                 {
@@ -71,7 +72,8 @@ namespace NHLApp.Infrastructure.Data
                         EntityId = entityId,
                         ResponseJson = json,
                         Metadata = metadata,
-                        FetchedAt = DateTime.UtcNow
+                        FetchedAt = DateTime.UtcNow,
+                        ContentHash = contentHash
                     });
                 }
                 await _context.SaveChangesAsync();

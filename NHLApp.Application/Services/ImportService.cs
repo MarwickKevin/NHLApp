@@ -7,14 +7,18 @@ using NHLApp.Application.Extensions;
 using System.Net;
 using NHLApp.Application.Contexts;
 using NHLApp.Application.DTOs.BoxscoreDTOs;
+using System.Security.Cryptography;
+using System.Text;
 
 namespace NHLApp.Application.Services
 {
-    // TODO: Add retry logic for API calls to handle transient failures and improve reliability
-    // TODO: Make error handling consistent across all methods, including logging and exception throwing. (centralize error handling)
     // TODO: Use hash comparison for JSON content to determine if an update is necessary, instead of relying solely on timestamps
-    // TODO: Improve commenting and documentation for each method, including parameter descriptions and return values.
+    // TODO: Add retry logic for API calls to handle transient failures and improve reliability
+
     // TODO: Add counters of success (x/y) and show in console
+    // TODO: Make error handling consistent across all methods, including logging and exception throwing. (centralize error handling)
+
+    // TODO: Improve commenting and documentation for each method, including parameter descriptions and return values.
 
     public class ImportService
     {
@@ -263,6 +267,7 @@ namespace NHLApp.Application.Services
         /// <returns></returns>
         private async Task ProcessImportAsync(WorkerContext context, string endpoint, string entityId, Func<Task<string>> fetchApiAsync, Func<string, string?>? metadataSelector = null)
         {
+
             var key = $"{endpoint}-{entityId}";
             var existing = _unitOfWork.RawApiResponses
                 .FirstOrDefault(r => r.EntityId == key);
@@ -277,6 +282,13 @@ namespace NHLApp.Application.Services
             {
                 var json = await fetchApiAsync();
                 string? metadata = metadataSelector?.Invoke(json);
+
+                var newHash = ComputeJsonHash(json);
+                if (existing != null && existing.ContentHash == newHash)
+                {
+                    _logger.LogInformationWithColor("{Key} content hash unchanged, skipping update.", ConsoleColor.DarkGreen, key);
+                    return;
+                }
 
                 await _unitOfWork.SaveOrUpdateRawResponseAsync(endpoint, key, json, metadata);
 
@@ -308,15 +320,18 @@ namespace NHLApp.Application.Services
         {
             var existingRecords = _unitOfWork.RawApiResponses
                 .Where(r => r.Endpoint == endpoint)
-                .Select(r => new { r.EntityId, r.FetchedAt })
-                .ToDictionary(r => r.EntityId, r => r.FetchedAt);
+                .Select(r => new { r.EntityId, r.FetchedAt, r.ContentHash })
+                .ToDictionary(r => r.EntityId, r => new { r.FetchedAt, r.ContentHash });
 
             foreach (var item in items)
             {
                 var entityId = entityIdSelector(item);
                 var key = $"{endpoint}-{entityId}";
 
-                existingRecords.TryGetValue(key, out var fetchedAt);
+                existingRecords.TryGetValue(key, out var existing);
+                DateTime? fetchedAt = existing?.FetchedAt;
+                string? existingHash = existing?.ContentHash;
+
 
                 if (IsFresh(fetchedAt))
                 {
@@ -327,9 +342,16 @@ namespace NHLApp.Application.Services
                 try
                 {
                     var json = await fetchApiAsync(item);
-                    string? metadata = metadataSelector?.Invoke(json);
+                    var newHash = ComputeJsonHash(json);
 
-                    await _unitOfWork.SaveOrUpdateRawResponseAsync(endpoint, key, json, metadata);
+                    if (existingHash != null && existingHash == newHash)
+                    {
+                        _logger.LogInformationWithColor("{Key} content hash unchanged, skipping update.", ConsoleColor.DarkGreen, key);
+                        continue;
+                    }
+
+                    string? metadata = metadataSelector?.Invoke(json);
+                    await _unitOfWork.SaveOrUpdateRawResponseAsync(endpoint, key, json, metadata, newHash);
 
                     await Task.Delay(ApiThrottlingDelay);
 
@@ -375,6 +397,13 @@ namespace NHLApp.Application.Services
             }
 
             return dates;
+        }
+
+        private string ComputeJsonHash(string jsonInput)
+        {
+            byte[] bytes = Encoding.UTF8.GetBytes(jsonInput);
+            byte[] hashBytes = SHA256.HashData(bytes);
+            return Convert.ToHexString(hashBytes);
         }
 
         #endregion
@@ -620,8 +649,7 @@ namespace NHLApp.Application.Services
                             {
                                 gameIds.Add(game.Id);
                             }
-                        }
-                        
+                        }                       
                         
                     }
                 }
