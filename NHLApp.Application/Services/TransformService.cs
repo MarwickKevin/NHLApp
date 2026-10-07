@@ -467,7 +467,7 @@ namespace NHLApp.Application.Services
                     }
 
                     // Hydrate/Update Game metadata fields available from Boxscore DTO
-                    game.Season = root.Season ?? game.Season;
+                    game.SeasonId = root.Season ?? game.SeasonId;
                     game.GameType = root.GameType ?? game.GameType;
                     game.LimitedScoring = root.LimitedScoring ?? game.LimitedScoring;
                     game.GameDate = root.GameDate ?? game.GameDate;

@@ -6,14 +6,19 @@ using Microsoft.Extensions.Logging;
 using NHLApp.Application.Extensions;
 using System.Net;
 using NHLApp.Application.Contexts;
+using NHLApp.Application.DTOs.BoxscoreDTOs;
+using System.Security.Cryptography;
+using System.Text;
 
 namespace NHLApp.Application.Services
 {
-    // TODO: Add retry logic for API calls to handle transient failures and improve reliability
-    // TODO: Make error handling consistent across all methods, including logging and exception throwing. (centralize error handling)
     // TODO: Use hash comparison for JSON content to determine if an update is necessary, instead of relying solely on timestamps
-    // TODO: Improve commenting and documentation for each method, including parameter descriptions and return values.
+    // TODO: Add retry logic for API calls to handle transient failures and improve reliability
+
     // TODO: Add counters of success (x/y) and show in console
+    // TODO: Make error handling consistent across all methods, including logging and exception throwing. (centralize error handling)
+
+    // TODO: Improve commenting and documentation for each method, including parameter descriptions and return values.
 
     public class ImportService
     {
@@ -137,7 +142,7 @@ namespace NHLApp.Application.Services
                     entityIdSelector: seasonId => $"{triCode}-{seasonId}",
                     fetchApiAsync: seasonId => _nhlClient.GetTeamRosterAsync(triCode, seasonId),
                     // Extract player IDs from the roster JSON response for metadata storage
-                    metadataSelector: json => ExtractPlayerIdsMetadata(json));
+                    metadataSelector: json => ExtractRosterPlayerIdsMetadata(json));
 
             }
         }
@@ -222,7 +227,8 @@ namespace NHLApp.Application.Services
                 items: gameIds,
                 endpoint: "boxscore",
                 entityIdSelector: gameId => gameId.ToString(),
-                fetchApiAsync: gameId => _nhlClient.GetBoxscoreAsync(gameId));
+                fetchApiAsync: gameId => _nhlClient.GetBoxscoreAsync(gameId),
+                metadataSelector: json => ExtractBoxscorePlayerIdsMetadata(json));
         }
 
         /// <summary>
@@ -261,6 +267,7 @@ namespace NHLApp.Application.Services
         /// <returns></returns>
         private async Task ProcessImportAsync(WorkerContext context, string endpoint, string entityId, Func<Task<string>> fetchApiAsync, Func<string, string?>? metadataSelector = null)
         {
+
             var key = $"{endpoint}-{entityId}";
             var existing = _unitOfWork.RawApiResponses
                 .FirstOrDefault(r => r.EntityId == key);
@@ -275,6 +282,13 @@ namespace NHLApp.Application.Services
             {
                 var json = await fetchApiAsync();
                 string? metadata = metadataSelector?.Invoke(json);
+
+                var newHash = ComputeJsonHash(json);
+                if (existing != null && existing.ContentHash == newHash)
+                {
+                    _logger.LogInformationWithColor("{Key} content hash unchanged, skipping update.", ConsoleColor.DarkGreen, key);
+                    return;
+                }
 
                 await _unitOfWork.SaveOrUpdateRawResponseAsync(endpoint, key, json, metadata);
 
@@ -306,15 +320,18 @@ namespace NHLApp.Application.Services
         {
             var existingRecords = _unitOfWork.RawApiResponses
                 .Where(r => r.Endpoint == endpoint)
-                .Select(r => new { r.EntityId, r.FetchedAt })
-                .ToDictionary(r => r.EntityId, r => r.FetchedAt);
+                .Select(r => new { r.EntityId, r.FetchedAt, r.ContentHash })
+                .ToDictionary(r => r.EntityId, r => new { r.FetchedAt, r.ContentHash });
 
             foreach (var item in items)
             {
                 var entityId = entityIdSelector(item);
                 var key = $"{endpoint}-{entityId}";
 
-                existingRecords.TryGetValue(key, out var fetchedAt);
+                existingRecords.TryGetValue(key, out var existing);
+                DateTime? fetchedAt = existing?.FetchedAt;
+                string? existingHash = existing?.ContentHash;
+
 
                 if (IsFresh(fetchedAt))
                 {
@@ -325,9 +342,16 @@ namespace NHLApp.Application.Services
                 try
                 {
                     var json = await fetchApiAsync(item);
-                    string? metadata = metadataSelector?.Invoke(json);
+                    var newHash = ComputeJsonHash(json);
 
-                    await _unitOfWork.SaveOrUpdateRawResponseAsync(endpoint, key, json, metadata);
+                    if (existingHash != null && existingHash == newHash)
+                    {
+                        _logger.LogInformationWithColor("{Key} content hash unchanged, skipping update.", ConsoleColor.DarkGreen, key);
+                        continue;
+                    }
+
+                    string? metadata = metadataSelector?.Invoke(json);
+                    await _unitOfWork.SaveOrUpdateRawResponseAsync(endpoint, key, json, metadata, newHash);
 
                     await Task.Delay(ApiThrottlingDelay);
 
@@ -373,6 +397,13 @@ namespace NHLApp.Application.Services
             }
 
             return dates;
+        }
+
+        private string ComputeJsonHash(string jsonInput)
+        {
+            byte[] bytes = Encoding.UTF8.GetBytes(jsonInput);
+            byte[] hashBytes = SHA256.HashData(bytes);
+            return Convert.ToHexString(hashBytes);
         }
 
         #endregion
@@ -502,7 +533,7 @@ namespace NHLApp.Application.Services
         /// </summary>
         /// <param name="json"></param>
         /// <returns></returns>
-        private string? ExtractPlayerIdsMetadata(string json)
+        private string? ExtractRosterPlayerIdsMetadata(string json)
         {
             if (json.TryDeserializeSafe<NhlRosterRootDTO>(out var rosterRoot, out _) && rosterRoot != null)
             {
@@ -515,6 +546,54 @@ namespace NHLApp.Application.Services
             }
             return null;
         }
+
+        /// <summary>
+        /// Extracts all unique player IDs from the boxscore JSON response and returns them as a serialized JSON string for metadata storage.
+        /// </summary>
+        private string? ExtractBoxscorePlayerIdsMetadata(string json)
+        {
+            if (json.TryDeserializeSafe<NhlBoxscoreRootDTO>(out var boxscoreRoot, out _) && boxscoreRoot?.PlayerByGameStats != null)
+            {
+                var playerIds = new HashSet<int>();
+                var stats = boxscoreRoot.PlayerByGameStats;
+
+                // Process Away Team
+                if (stats.AwayTeam != null)
+                {
+                    if (stats.AwayTeam.Forwards != null)
+                        foreach (var p in stats.AwayTeam.Forwards)
+                            if (p.PlayerId.HasValue) playerIds.Add(p.PlayerId.Value);
+
+                    if (stats.AwayTeam.Defense != null)
+                        foreach (var p in stats.AwayTeam.Defense)
+                            if (p.PlayerId.HasValue) playerIds.Add(p.PlayerId.Value);
+
+                    if (stats.AwayTeam.Goalies != null)
+                        foreach (var p in stats.AwayTeam.Goalies)
+                            if (p.PlayerId.HasValue) playerIds.Add(p.PlayerId.Value);
+                }
+
+                // Process Home Team
+                if (stats.HomeTeam != null)
+                {
+                    if (stats.HomeTeam.Forwards != null)
+                        foreach (var p in stats.HomeTeam.Forwards)
+                            if (p.PlayerId.HasValue) playerIds.Add(p.PlayerId.Value);
+
+                    if (stats.HomeTeam.Defense != null)
+                        foreach (var p in stats.HomeTeam.Defense)
+                            if (p.PlayerId.HasValue) playerIds.Add(p.PlayerId.Value);
+
+                    if (stats.HomeTeam.Goalies != null)
+                        foreach (var p in stats.HomeTeam.Goalies)
+                            if (p.PlayerId.HasValue) playerIds.Add(p.PlayerId.Value);
+                }
+
+                return JsonSerializer.Serialize(new { PlayerIds = playerIds });
+            }
+            return null;
+        }
+
         /// <summary>
         /// Retrieves all unique player Ids from the roster metadata.
         /// </summary>
@@ -523,7 +602,7 @@ namespace NHLApp.Application.Services
             var playerIds = new List<int>();
 
             var records = _unitOfWork.RawApiResponses
-                .Where(r => r.Endpoint == "roster" && !string.IsNullOrWhiteSpace(r.Metadata))
+                .Where(r => (r.Endpoint == "roster" || r.Endpoint == "boxscore") && !string.IsNullOrWhiteSpace(r.Metadata))
                 .ToList();
 
             foreach (var record in records)
@@ -542,7 +621,7 @@ namespace NHLApp.Application.Services
                         }
                     }
                 }
-                catch { _logger.LogErrorWithColor("Error parsing PlayerId for metadata", ConsoleColor.Red); }
+                catch { _logger.LogErrorWithColor($"Error parsing PlayerId for metadata (Endpoint: {record.Endpoint})", ConsoleColor.Red); }
             }
 
             return playerIds.Distinct().ToList();
@@ -570,8 +649,7 @@ namespace NHLApp.Application.Services
                             {
                                 gameIds.Add(game.Id);
                             }
-                        }
-                        
+                        }                       
                         
                     }
                 }
