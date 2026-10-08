@@ -28,7 +28,7 @@ namespace NHLApp.Application.Services
         private readonly ILogger<ImportService> _logger;
 
         // Constants for API throttling to avoid hitting the NHL API too quickly
-        private const int ApiThrottlingDelay = 200;
+        private const int ApiThrottlingDelay = 0;
 
         public ImportService(INHLApiClient nhlClient, IUnitOfWork unitOfWork, ILogger<ImportService> logger)
         {
@@ -376,7 +376,7 @@ namespace NHLApp.Application.Services
         /// </summary>
         private bool IsFresh(DateTime? fetchedAt)
         {
-            return fetchedAt.HasValue && fetchedAt.Value > DateTime.UtcNow.AddDays(1);
+            return fetchedAt.HasValue && fetchedAt.Value > DateTime.UtcNow.AddDays(-1);
         }
 
         /// <summary>
